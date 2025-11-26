@@ -1515,3 +1515,740 @@ class YTDLPHandler:
 
         except Exception as e:
             raise RuntimeError(f"Failed to split by chapters: {e}")
+
+    # ==================== NEW FEATURES v0.6 ====================
+
+    # --- Match Filters ---
+
+    def download_with_filter(self, url: str, output_path: str = None,
+                             match_filter: str = None,
+                             format: str = 'best') -> Optional[str]:
+        """
+        Download video only if it matches the filter criteria.
+
+        Filter expressions support:
+        - Comparison operators: <, <=, >, >=, =, !=
+        - Logical operators: & (and), | (or)
+        - Fields: duration, view_count, like_count, upload_date, uploader, title, etc.
+
+        Examples:
+            - "duration > 600" - Videos longer than 10 minutes
+            - "view_count > 10000" - Videos with more than 10k views
+            - "duration > 300 & view_count > 1000" - Combined filter
+            - "uploader = 'ChannelName'" - Specific channel
+            - "upload_date >= 20240101" - Videos from 2024 onwards
+
+        Args:
+            url: YouTube video URL or playlist URL
+            output_path: Output directory
+            match_filter: Filter expression string
+            format: Format specification
+
+        Returns:
+            Path to downloaded file, or None if filtered out
+        """
+        self._ensure_initialized()
+
+        video_id = self.extract_video_id(url) if self.is_valid_youtube_url(url) else None
+
+        if output_path is None:
+            output_path = os.path.join(os.getcwd(), 'temp')
+
+        ensure_directory(output_path)
+
+        ydl_opts = {
+            'format': format,
+            'outtmpl': os.path.join(output_path, '%(id)s.%(ext)s'),
+            'quiet': False,
+            'no_warnings': True,
+        }
+
+        if match_filter:
+            ydl_opts['match_filter'] = self._ydl.utils.match_filter_func(match_filter)
+
+        try:
+            with self._ydl.YoutubeDL(ydl_opts) as ydl:
+                result = ydl.download([url])
+
+            # If result is 0, download was successful (or skipped due to filter)
+            # Find the downloaded file
+            if video_id:
+                for ext in ['mp4', 'webm', 'mkv', 'mp3', 'wav', 'm4a']:
+                    file_path = os.path.join(output_path, f'{video_id}.{ext}')
+                    if os.path.exists(file_path):
+                        return file_path
+
+            # For playlists, find any downloaded files
+            for file in os.listdir(output_path):
+                file_path = os.path.join(output_path, file)
+                if os.path.isfile(file_path) and not file.endswith('.part'):
+                    return file_path
+
+            return None  # Filtered out or no match
+
+        except Exception as e:
+            if 'filter' in str(e).lower() or 'rejected' in str(e).lower():
+                return None  # Filtered out
+            raise RuntimeError(f"Failed to download with filter: {e}")
+
+    def get_videos_matching_filter(self, url: str, match_filter: str = None,
+                                   max_results: int = None) -> List[Dict[str, Any]]:
+        """
+        Get video info for videos matching the filter criteria (without downloading).
+
+        Useful for previewing what would be downloaded before actually downloading.
+
+        Args:
+            url: YouTube video, playlist, or channel URL
+            match_filter: Filter expression string
+            max_results: Maximum number of results to return
+
+        Returns:
+            List of video info dictionaries that match the filter
+        """
+        self._ensure_initialized()
+
+        ydl_opts = {
+            'quiet': True,
+            'no_warnings': True,
+            'extract_flat': False,
+            'skip_download': True,
+            'ignoreerrors': True,  # Continue on errors
+        }
+
+        if match_filter:
+            ydl_opts['match_filter'] = self._ydl.utils.match_filter_func(match_filter)
+
+        if max_results:
+            ydl_opts['playlistend'] = max_results
+
+        try:
+            with self._ydl.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=False)
+
+                results = []
+
+                # Handle playlists
+                if 'entries' in info and info['entries']:
+                    for entry in info['entries']:
+                        if entry:  # Entry might be None if filtered out
+                            results.append(self._format_video_info(entry, entry.get('webpage_url', '')))
+                else:
+                    # Single video
+                    results.append(self._format_video_info(info, url))
+
+                return results[:max_results] if max_results else results
+
+        except Exception as e:
+            raise RuntimeError(f"Failed to get videos with filter: {e}")
+
+    def filter_playlist(self, playlist_url: str, match_filter: str = None,
+                        date_range: tuple = None,
+                        min_views: int = None,
+                        max_views: int = None,
+                        min_duration: int = None,
+                        max_duration: int = None,
+                        title_contains: str = None,
+                        title_not_contains: str = None) -> List[Dict[str, Any]]:
+        """
+        Filter playlist videos with convenient parameter options.
+
+        This is a higher-level wrapper around match_filter for common use cases.
+
+        Args:
+            playlist_url: YouTube playlist URL
+            match_filter: Raw filter expression (if provided, other params are ignored)
+            date_range: Tuple of (start_date, end_date) in YYYYMMDD format
+            min_views: Minimum view count
+            max_views: Maximum view count
+            min_duration: Minimum duration in seconds
+            max_duration: Maximum duration in seconds
+            title_contains: Title must contain this string (case-insensitive)
+            title_not_contains: Title must NOT contain this string
+
+        Returns:
+            List of matching video info dictionaries
+        """
+        # Build filter expression from parameters if no raw filter provided
+        if not match_filter:
+            conditions = []
+
+            if date_range:
+                start_date, end_date = date_range
+                if start_date:
+                    conditions.append(f"upload_date >= {start_date}")
+                if end_date:
+                    conditions.append(f"upload_date <= {end_date}")
+
+            if min_views is not None:
+                conditions.append(f"view_count >= {min_views}")
+            if max_views is not None:
+                conditions.append(f"view_count <= {max_views}")
+
+            if min_duration is not None:
+                conditions.append(f"duration >= {min_duration}")
+            if max_duration is not None:
+                conditions.append(f"duration <= {max_duration}")
+
+            if conditions:
+                match_filter = " & ".join(conditions)
+
+        # Get filtered videos
+        videos = self.get_videos_matching_filter(playlist_url, match_filter)
+
+        # Apply title filters (not supported by yt-dlp's match_filter)
+        if title_contains:
+            title_contains = title_contains.lower()
+            videos = [v for v in videos if title_contains in v.get('title', '').lower()]
+
+        if title_not_contains:
+            title_not_contains = title_not_contains.lower()
+            videos = [v for v in videos if title_not_contains not in v.get('title', '').lower()]
+
+        return videos
+
+    def batch_download_with_filter(self, url: str, output_path: str = None,
+                                   match_filter: str = None,
+                                   format: str = 'best',
+                                   max_downloads: int = None,
+                                   skip_existing: bool = True) -> List[str]:
+        """
+        Download multiple videos from playlist/channel with filter.
+
+        Args:
+            url: YouTube playlist or channel URL
+            output_path: Output directory
+            match_filter: Filter expression
+            format: Format specification
+            max_downloads: Maximum number of videos to download
+            skip_existing: Skip videos that already exist in output_path
+
+        Returns:
+            List of paths to downloaded files
+        """
+        self._ensure_initialized()
+
+        if output_path is None:
+            output_path = os.path.join(os.getcwd(), 'temp')
+
+        ensure_directory(output_path)
+
+        ydl_opts = {
+            'format': format,
+            'outtmpl': os.path.join(output_path, '%(id)s.%(ext)s'),
+            'quiet': False,
+            'no_warnings': True,
+            'ignoreerrors': True,  # Continue on errors
+        }
+
+        if match_filter:
+            ydl_opts['match_filter'] = self._ydl.utils.match_filter_func(match_filter)
+
+        if max_downloads:
+            ydl_opts['playlistend'] = max_downloads
+
+        if skip_existing:
+            # Use archive to track downloads
+            archive_file = os.path.join(output_path, '.download_archive.txt')
+            ydl_opts['download_archive'] = archive_file
+
+        try:
+            with self._ydl.YoutubeDL(ydl_opts) as ydl:
+                ydl.download([url])
+
+            # Find all downloaded files
+            downloaded_files = []
+            for file in os.listdir(output_path):
+                file_path = os.path.join(output_path, file)
+                if os.path.isfile(file_path) and not file.startswith('.') and not file.endswith('.part'):
+                    downloaded_files.append(file_path)
+
+            return downloaded_files
+
+        except Exception as e:
+            raise RuntimeError(f"Failed batch download with filter: {e}")
+
+    # --- Metadata File Export ---
+
+    def download_with_metadata_files(self, url: str, output_path: str = None,
+                                     write_info_json: bool = True,
+                                     write_description: bool = True,
+                                     write_thumbnail: bool = True,
+                                     write_subtitles: bool = False,
+                                     subtitle_langs: List[str] = None,
+                                     format: str = 'best') -> Dict[str, str]:
+        """
+        Download video with accompanying metadata files.
+
+        Creates separate files for metadata, description, thumbnail, and subtitles.
+
+        Args:
+            url: YouTube video URL
+            output_path: Output directory
+            write_info_json: Create .info.json file with all metadata
+            write_description: Create .description file
+            write_thumbnail: Download thumbnail image
+            write_subtitles: Download subtitle files
+            subtitle_langs: List of subtitle languages (default: ['en'])
+            format: Video format specification
+
+        Returns:
+            Dictionary mapping file types to their paths
+        """
+        self._ensure_initialized()
+
+        video_id = self.extract_video_id(url) if self.is_valid_youtube_url(url) else None
+
+        if output_path is None:
+            output_path = os.path.join(os.getcwd(), 'temp')
+
+        ensure_directory(output_path)
+
+        ydl_opts = {
+            'format': format,
+            'outtmpl': os.path.join(output_path, '%(id)s.%(ext)s'),
+            'quiet': False,
+            'no_warnings': True,
+            'writeinfojson': write_info_json,
+            'writedescription': write_description,
+            'writethumbnail': write_thumbnail,
+        }
+
+        if write_subtitles:
+            ydl_opts['writesubtitles'] = True
+            ydl_opts['writeautomaticsub'] = True
+            ydl_opts['subtitleslangs'] = subtitle_langs or ['en']
+
+        try:
+            with self._ydl.YoutubeDL(ydl_opts) as ydl:
+                ydl.download([url])
+
+            # Collect all created files
+            result = {}
+
+            if video_id:
+                base_path = os.path.join(output_path, video_id)
+
+                # Find main video file
+                for ext in ['mp4', 'webm', 'mkv']:
+                    video_path = f"{base_path}.{ext}"
+                    if os.path.exists(video_path):
+                        result['video'] = video_path
+                        break
+
+                # Check for metadata files
+                if write_info_json:
+                    json_path = f"{base_path}.info.json"
+                    if os.path.exists(json_path):
+                        result['info_json'] = json_path
+
+                if write_description:
+                    desc_path = f"{base_path}.description"
+                    if os.path.exists(desc_path):
+                        result['description'] = desc_path
+
+                if write_thumbnail:
+                    for ext in ['webp', 'jpg', 'jpeg', 'png']:
+                        thumb_path = f"{base_path}.{ext}"
+                        if os.path.exists(thumb_path):
+                            result['thumbnail'] = thumb_path
+                            break
+
+                if write_subtitles:
+                    # Find subtitle files
+                    for file in os.listdir(output_path):
+                        if file.startswith(video_id) and file.endswith(('.srt', '.vtt', '.ass')):
+                            if 'subtitles' not in result:
+                                result['subtitles'] = []
+                            result['subtitles'].append(os.path.join(output_path, file))
+
+            return result
+
+        except Exception as e:
+            raise RuntimeError(f"Failed to download with metadata files: {e}")
+
+    def export_metadata_only(self, url: str, output_path: str = None,
+                             format_type: str = 'json') -> str:
+        """
+        Export video metadata without downloading the video.
+
+        Args:
+            url: YouTube video URL
+            output_path: Output file path or directory
+            format_type: Output format ('json', 'description', 'all')
+
+        Returns:
+            Path to the exported metadata file
+        """
+        self._ensure_initialized()
+
+        video_id = self.extract_video_id(url) if self.is_valid_youtube_url(url) else None
+
+        if output_path is None:
+            output_path = os.path.join(os.getcwd(), 'temp')
+
+        # Determine if output_path is a directory or file
+        if os.path.isdir(output_path) or not os.path.splitext(output_path)[1]:
+            ensure_directory(output_path)
+            base_path = os.path.join(output_path, video_id or 'video')
+        else:
+            ensure_directory(os.path.dirname(output_path))
+            base_path = os.path.splitext(output_path)[0]
+
+        ydl_opts = {
+            'quiet': True,
+            'no_warnings': True,
+            'skip_download': True,
+            'outtmpl': f"{base_path}.%(ext)s",
+        }
+
+        if format_type in ['json', 'all']:
+            ydl_opts['writeinfojson'] = True
+
+        if format_type in ['description', 'all']:
+            ydl_opts['writedescription'] = True
+
+        try:
+            with self._ydl.YoutubeDL(ydl_opts) as ydl:
+                ydl.download([url])
+
+            # Return the appropriate file path
+            if format_type == 'json':
+                return f"{base_path}.info.json"
+            elif format_type == 'description':
+                return f"{base_path}.description"
+            else:
+                return base_path  # Base path for 'all'
+
+        except Exception as e:
+            raise RuntimeError(f"Failed to export metadata: {e}")
+
+    def get_full_metadata(self, url: str) -> Dict[str, Any]:
+        """
+        Get comprehensive metadata for a video (more fields than get_video_info).
+
+        Includes all available fields from yt-dlp extraction.
+
+        Args:
+            url: YouTube video URL
+
+        Returns:
+            Dictionary with comprehensive metadata
+        """
+        self._ensure_initialized()
+
+        try:
+            ydl_opts = {
+                'quiet': True,
+                'no_warnings': True,
+                'extract_flat': False,
+            }
+
+            with self._ydl.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=False)
+
+                # Return comprehensive metadata
+                return {
+                    # Basic info
+                    'id': info.get('id', ''),
+                    'title': info.get('title', ''),
+                    'description': info.get('description', ''),
+                    'upload_date': info.get('upload_date', ''),
+                    'timestamp': info.get('timestamp'),
+                    'duration': info.get('duration', 0),
+                    'duration_string': info.get('duration_string', ''),
+
+                    # Channel info
+                    'uploader': info.get('uploader', ''),
+                    'uploader_id': info.get('uploader_id', ''),
+                    'uploader_url': info.get('uploader_url', ''),
+                    'channel': info.get('channel', ''),
+                    'channel_id': info.get('channel_id', ''),
+                    'channel_url': info.get('channel_url', ''),
+                    'channel_follower_count': info.get('channel_follower_count'),
+                    'channel_is_verified': info.get('channel_is_verified', False),
+
+                    # Engagement metrics
+                    'view_count': info.get('view_count', 0),
+                    'like_count': info.get('like_count'),
+                    'dislike_count': info.get('dislike_count'),
+                    'comment_count': info.get('comment_count'),
+                    'average_rating': info.get('average_rating'),
+
+                    # Thumbnails
+                    'thumbnail': info.get('thumbnail', ''),
+                    'thumbnails': info.get('thumbnails', []),
+
+                    # Categories and tags
+                    'categories': info.get('categories', []),
+                    'tags': info.get('tags', []),
+
+                    # Live stream info
+                    'is_live': info.get('is_live', False),
+                    'was_live': info.get('was_live', False),
+                    'live_status': info.get('live_status'),
+                    'release_timestamp': info.get('release_timestamp'),
+                    'release_date': info.get('release_date'),
+                    'release_year': info.get('release_year'),
+
+                    # Availability
+                    'availability': info.get('availability', ''),
+                    'age_limit': info.get('age_limit', 0),
+                    'playable_in_embed': info.get('playable_in_embed', True),
+
+                    # Technical info
+                    'webpage_url': info.get('webpage_url', url),
+                    'original_url': info.get('original_url', url),
+                    'extractor': info.get('extractor', ''),
+                    'extractor_key': info.get('extractor_key', ''),
+
+                    # Chapters and heatmap
+                    'chapters': info.get('chapters', []),
+                    'heatmap': info.get('heatmap', []),
+
+                    # Format info
+                    'format': info.get('format', ''),
+                    'format_id': info.get('format_id', ''),
+                    'format_note': info.get('format_note', ''),
+                    'resolution': info.get('resolution', ''),
+                    'fps': info.get('fps'),
+                    'vcodec': info.get('vcodec', ''),
+                    'acodec': info.get('acodec', ''),
+                    'abr': info.get('abr'),
+                    'vbr': info.get('vbr'),
+                    'tbr': info.get('tbr'),
+                    'filesize': info.get('filesize'),
+                    'filesize_approx': info.get('filesize_approx'),
+
+                    # Subtitles info
+                    'subtitles': list(info.get('subtitles', {}).keys()),
+                    'automatic_captions': list(info.get('automatic_captions', {}).keys()),
+
+                    # Available formats count
+                    'formats_count': len(info.get('formats', [])),
+                }
+
+        except Exception as e:
+            raise RuntimeError(f"Failed to get full metadata: {e}")
+
+    # --- YouTube Shorts Support ---
+
+    def is_youtube_short(self, url: str) -> bool:
+        """
+        Check if a URL is a YouTube Short.
+
+        Args:
+            url: YouTube URL
+
+        Returns:
+            True if the URL is a YouTube Short
+        """
+        # Check URL patterns for Shorts
+        shorts_patterns = [
+            r'youtube\.com/shorts/',
+            r'youtu\.be/shorts/',
+        ]
+
+        for pattern in shorts_patterns:
+            if re.search(pattern, url):
+                return True
+
+        # Also check video duration if it's a regular URL
+        # Shorts are typically under 60 seconds
+        if self.is_valid_youtube_url(url) and '/shorts/' not in url:
+            try:
+                info = self.get_video_info(url)
+                duration = info.get('duration', 0)
+                # YouTube Shorts are max 60 seconds
+                return duration <= 60
+            except:
+                pass
+
+        return False
+
+    def get_shorts_info(self, url: str) -> Dict[str, Any]:
+        """
+        Get information about a YouTube Short.
+
+        Args:
+            url: YouTube Shorts URL
+
+        Returns:
+            Dictionary with Shorts-specific info
+        """
+        self._ensure_initialized()
+
+        try:
+            ydl_opts = {
+                'quiet': True,
+                'no_warnings': True,
+                'extract_flat': False,
+            }
+
+            with self._ydl.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=False)
+
+                return {
+                    'id': info.get('id', ''),
+                    'title': info.get('title', ''),
+                    'description': info.get('description', ''),
+                    'duration': info.get('duration', 0),
+                    'is_short': info.get('duration', 0) <= 60,
+                    'view_count': info.get('view_count', 0),
+                    'like_count': info.get('like_count'),
+                    'comment_count': info.get('comment_count'),
+                    'uploader': info.get('uploader', ''),
+                    'channel': info.get('channel', ''),
+                    'channel_id': info.get('channel_id', ''),
+                    'thumbnail': info.get('thumbnail', ''),
+                    'upload_date': info.get('upload_date', ''),
+                    'webpage_url': info.get('webpage_url', url),
+                    # Shorts-specific
+                    'original_url': url,
+                    'is_vertical': True,  # Shorts are always vertical (9:16)
+                }
+
+        except Exception as e:
+            raise RuntimeError(f"Failed to get Shorts info: {e}")
+
+    def download_short(self, url: str, output_path: str = None,
+                       format: str = 'mp4',
+                       with_audio: bool = True) -> str:
+        """
+        Download a YouTube Short.
+
+        Args:
+            url: YouTube Shorts URL
+            output_path: Output directory
+            format: Output format ('mp4', 'webm')
+            with_audio: Include audio in download
+
+        Returns:
+            Path to downloaded Short file
+        """
+        self._ensure_initialized()
+
+        video_id = self.extract_video_id(url) if self.is_valid_youtube_url(url) else None
+
+        # Handle Shorts URLs that may have different format
+        if '/shorts/' in url and video_id is None:
+            # Extract ID from /shorts/VIDEO_ID format
+            match = re.search(r'/shorts/([^/?&]+)', url)
+            if match:
+                video_id = match.group(1)
+
+        if output_path is None:
+            output_path = os.path.join(os.getcwd(), 'temp')
+
+        ensure_directory(output_path)
+
+        if with_audio:
+            format_spec = f'best[ext={format}]/best'
+        else:
+            format_spec = f'bestvideo[ext={format}]/bestvideo'
+
+        ydl_opts = {
+            'format': format_spec,
+            'outtmpl': os.path.join(output_path, f'{video_id}.%(ext)s'),
+            'quiet': False,
+            'no_warnings': True,
+        }
+
+        try:
+            with self._ydl.YoutubeDL(ydl_opts) as ydl:
+                ydl.download([url])
+
+            # Find downloaded file
+            for ext in ['mp4', 'webm', 'mkv']:
+                file_path = os.path.join(output_path, f'{video_id}.{ext}')
+                if os.path.exists(file_path):
+                    return file_path
+
+            raise RuntimeError("Short file not found after download")
+
+        except Exception as e:
+            raise RuntimeError(f"Failed to download Short: {e}")
+
+    def get_channel_shorts(self, channel_url: str, max_results: int = 50) -> List[Dict[str, Any]]:
+        """
+        Get all Shorts from a YouTube channel.
+
+        Args:
+            channel_url: YouTube channel URL
+            max_results: Maximum number of Shorts to retrieve
+
+        Returns:
+            List of Shorts info dictionaries
+        """
+        self._ensure_initialized()
+
+        # Convert channel URL to Shorts tab URL
+        if '/shorts' not in channel_url:
+            if channel_url.endswith('/'):
+                shorts_url = channel_url + 'shorts'
+            else:
+                shorts_url = channel_url + '/shorts'
+        else:
+            shorts_url = channel_url
+
+        try:
+            ydl_opts = {
+                'quiet': True,
+                'no_warnings': True,
+                'extract_flat': True,
+                'playlistend': max_results,
+            }
+
+            with self._ydl.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(shorts_url, download=False)
+
+                shorts = []
+                if 'entries' in info and info['entries']:
+                    for entry in info['entries']:
+                        if entry:
+                            shorts.append({
+                                'id': entry.get('id', ''),
+                                'title': entry.get('title', ''),
+                                'url': f"https://www.youtube.com/shorts/{entry.get('id', '')}",
+                                'duration': entry.get('duration', 0),
+                                'view_count': entry.get('view_count'),
+                                'uploader': entry.get('uploader', ''),
+                            })
+
+                return shorts
+
+        except Exception as e:
+            raise RuntimeError(f"Failed to get channel Shorts: {e}")
+
+    def batch_download_shorts(self, channel_url: str, output_path: str = None,
+                              max_downloads: int = 10,
+                              format: str = 'mp4') -> List[str]:
+        """
+        Download multiple Shorts from a channel.
+
+        Args:
+            channel_url: YouTube channel URL
+            output_path: Output directory
+            max_downloads: Maximum number of Shorts to download
+            format: Output format
+
+        Returns:
+            List of paths to downloaded files
+        """
+        # Get list of Shorts
+        shorts = self.get_channel_shorts(channel_url, max_results=max_downloads)
+
+        downloaded = []
+        for short in shorts[:max_downloads]:
+            try:
+                path = self.download_short(
+                    short['url'],
+                    output_path=output_path,
+                    format=format
+                )
+                downloaded.append(path)
+            except Exception as e:
+                print(f"Failed to download Short {short['id']}: {e}")
+                continue
+
+        return downloaded

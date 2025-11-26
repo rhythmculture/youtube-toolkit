@@ -57,7 +57,7 @@ Channel Support (v0.3+):
 from .api import YouTubeToolkit
 
 __all__ = ["YouTubeToolkit"]
-__version__ = "0.5.0"
+__version__ = "0.7.0"
 __author__ = "Bo-Yu Chen"
 __description__ = "A comprehensive YouTube information and download toolkit"
 

@@ -1248,10 +1248,10 @@ class YouTubeAPIHandler:
     def test_connection(self, video_url: str) -> bool:
         """
         Test if YouTube API can connect and fetch basic data.
-        
+
         Args:
             video_url: YouTube video URL
-            
+
         Returns:
             True if connection successful, False otherwise
         """
@@ -1261,3 +1261,685 @@ class YouTubeAPIHandler:
             return "error" not in metadata
         except Exception:
             return False
+
+    # ==================== v0.7 ANALYTICAL FEATURES ====================
+
+    # --- Subscriptions API ---
+
+    def get_channel_subscriptions(self, channel_id: str, max_results: int = 50,
+                                  order: str = 'relevance',
+                                  page_token: str = None) -> Dict[str, Any]:
+        """
+        Get subscriptions of a channel (channels they are subscribed to).
+
+        Args:
+            channel_id: YouTube channel ID
+            max_results: Maximum number of results (max 50)
+            order: Sort order ('alphabetical', 'relevance', 'unread')
+            page_token: Token for pagination
+
+        Returns:
+            Dictionary with subscription data and pagination info
+        """
+        self._ensure_initialized()
+
+        try:
+            params = {
+                'part': 'snippet,contentDetails',
+                'channelId': channel_id,
+                'maxResults': min(max_results, 50),
+                'order': order,
+            }
+
+            if page_token:
+                params['pageToken'] = page_token
+
+            response = self._youtube.subscriptions().list(**params).execute()
+
+            subscriptions = []
+            for item in response.get('items', []):
+                snippet = item.get('snippet', {})
+                content_details = item.get('contentDetails', {})
+                resource_id = snippet.get('resourceId', {})
+
+                subscriptions.append({
+                    'subscription_id': item.get('id', ''),
+                    'channel_id': resource_id.get('channelId', ''),
+                    'channel_title': snippet.get('title', ''),
+                    'channel_description': snippet.get('description', ''),
+                    'channel_thumbnail': snippet.get('thumbnails', {}).get('default', {}).get('url', ''),
+                    'subscribed_at': snippet.get('publishedAt', ''),
+                    'total_item_count': content_details.get('totalItemCount', 0),
+                    'new_item_count': content_details.get('newItemCount', 0),
+                    'activity_type': content_details.get('activityType', ''),
+                })
+
+            return {
+                'subscriptions': subscriptions,
+                'total_results': response.get('pageInfo', {}).get('totalResults', len(subscriptions)),
+                'results_per_page': response.get('pageInfo', {}).get('resultsPerPage', max_results),
+                'next_page_token': response.get('nextPageToken'),
+                'prev_page_token': response.get('prevPageToken'),
+                'quota_cost': 1,
+            }
+
+        except Exception as e:
+            raise RuntimeError(f"Failed to get channel subscriptions: {e}")
+
+    def check_subscription(self, channel_id: str, target_channel_id: str) -> Dict[str, Any]:
+        """
+        Check if a channel is subscribed to another channel.
+
+        Args:
+            channel_id: The channel to check subscriptions for
+            target_channel_id: The channel to check if subscribed to
+
+        Returns:
+            Dictionary with subscription status and details
+        """
+        self._ensure_initialized()
+
+        try:
+            response = self._youtube.subscriptions().list(
+                part='snippet',
+                channelId=channel_id,
+                forChannelId=target_channel_id
+            ).execute()
+
+            if response.get('items'):
+                item = response['items'][0]
+                snippet = item.get('snippet', {})
+                return {
+                    'is_subscribed': True,
+                    'subscription_id': item.get('id', ''),
+                    'subscribed_at': snippet.get('publishedAt', ''),
+                    'channel_title': snippet.get('title', ''),
+                }
+            else:
+                return {
+                    'is_subscribed': False,
+                    'subscription_id': None,
+                    'subscribed_at': None,
+                    'channel_title': None,
+                }
+
+        except Exception as e:
+            raise RuntimeError(f"Failed to check subscription: {e}")
+
+    # --- Video Categories API ---
+
+    def get_video_categories(self, region_code: str = 'US',
+                            language: str = 'en') -> List[Dict[str, Any]]:
+        """
+        Get video categories available in a region.
+
+        Args:
+            region_code: ISO 3166-1 alpha-2 country code (e.g., 'US', 'GB', 'JP')
+            language: Language for category names (e.g., 'en', 'es', 'ja')
+
+        Returns:
+            List of video category dictionaries
+        """
+        self._ensure_initialized()
+
+        try:
+            response = self._youtube.videoCategories().list(
+                part='snippet',
+                regionCode=region_code,
+                hl=language
+            ).execute()
+
+            categories = []
+            for item in response.get('items', []):
+                snippet = item.get('snippet', {})
+                categories.append({
+                    'id': item.get('id', ''),
+                    'title': snippet.get('title', ''),
+                    'assignable': snippet.get('assignable', False),
+                    'channel_id': snippet.get('channelId', ''),
+                })
+
+            return categories
+
+        except Exception as e:
+            raise RuntimeError(f"Failed to get video categories: {e}")
+
+    def get_category_by_id(self, category_id: str,
+                          language: str = 'en') -> Dict[str, Any]:
+        """
+        Get a specific video category by ID.
+
+        Args:
+            category_id: Video category ID
+            language: Language for category name
+
+        Returns:
+            Category dictionary or None if not found
+        """
+        self._ensure_initialized()
+
+        try:
+            response = self._youtube.videoCategories().list(
+                part='snippet',
+                id=category_id,
+                hl=language
+            ).execute()
+
+            if response.get('items'):
+                item = response['items'][0]
+                snippet = item.get('snippet', {})
+                return {
+                    'id': item.get('id', ''),
+                    'title': snippet.get('title', ''),
+                    'assignable': snippet.get('assignable', False),
+                    'channel_id': snippet.get('channelId', ''),
+                }
+            return None
+
+        except Exception as e:
+            raise RuntimeError(f"Failed to get category by ID: {e}")
+
+    # --- i18n Languages/Regions API ---
+
+    def get_supported_languages(self, language: str = 'en') -> List[Dict[str, Any]]:
+        """
+        Get list of languages supported by YouTube.
+
+        Args:
+            language: Language for displaying names (e.g., 'en', 'es')
+
+        Returns:
+            List of supported language dictionaries
+        """
+        self._ensure_initialized()
+
+        try:
+            response = self._youtube.i18nLanguages().list(
+                part='snippet',
+                hl=language
+            ).execute()
+
+            languages = []
+            for item in response.get('items', []):
+                snippet = item.get('snippet', {})
+                languages.append({
+                    'code': item.get('id', ''),  # Language code like 'en', 'es'
+                    'name': snippet.get('name', ''),
+                    'hl': snippet.get('hl', ''),
+                })
+
+            return languages
+
+        except Exception as e:
+            raise RuntimeError(f"Failed to get supported languages: {e}")
+
+    def get_supported_regions(self, language: str = 'en') -> List[Dict[str, Any]]:
+        """
+        Get list of regions/countries supported by YouTube.
+
+        Args:
+            language: Language for displaying names (e.g., 'en', 'es')
+
+        Returns:
+            List of supported region dictionaries
+        """
+        self._ensure_initialized()
+
+        try:
+            response = self._youtube.i18nRegions().list(
+                part='snippet',
+                hl=language
+            ).execute()
+
+            regions = []
+            for item in response.get('items', []):
+                snippet = item.get('snippet', {})
+                regions.append({
+                    'code': item.get('id', ''),  # Region code like 'US', 'GB'
+                    'name': snippet.get('name', ''),
+                    'gl': snippet.get('gl', ''),
+                })
+
+            return regions
+
+        except Exception as e:
+            raise RuntimeError(f"Failed to get supported regions: {e}")
+
+    # --- Activities API ---
+
+    def get_channel_activities(self, channel_id: str, max_results: int = 25,
+                              published_after: str = None,
+                              published_before: str = None,
+                              region_code: str = None,
+                              page_token: str = None) -> Dict[str, Any]:
+        """
+        Get activity feed for a channel.
+
+        Activity types include: upload, like, favorite, comment, subscription,
+        playlistItem, recommendation, bulletin, channelItem, social, etc.
+
+        Args:
+            channel_id: YouTube channel ID
+            max_results: Maximum number of results (max 50)
+            published_after: ISO 8601 datetime (e.g., '2024-01-01T00:00:00Z')
+            published_before: ISO 8601 datetime
+            region_code: Filter by region (e.g., 'US')
+            page_token: Token for pagination
+
+        Returns:
+            Dictionary with activities and pagination info
+        """
+        self._ensure_initialized()
+
+        try:
+            params = {
+                'part': 'snippet,contentDetails',
+                'channelId': channel_id,
+                'maxResults': min(max_results, 50),
+            }
+
+            if published_after:
+                params['publishedAfter'] = published_after
+            if published_before:
+                params['publishedBefore'] = published_before
+            if region_code:
+                params['regionCode'] = region_code
+            if page_token:
+                params['pageToken'] = page_token
+
+            response = self._youtube.activities().list(**params).execute()
+
+            activities = []
+            for item in response.get('items', []):
+                snippet = item.get('snippet', {})
+                content_details = item.get('contentDetails', {})
+
+                # Determine activity type and extract relevant content
+                activity_type = snippet.get('type', 'unknown')
+                content = content_details.get(activity_type, {})
+
+                activities.append({
+                    'activity_id': item.get('id', ''),
+                    'type': activity_type,
+                    'title': snippet.get('title', ''),
+                    'description': snippet.get('description', ''),
+                    'published_at': snippet.get('publishedAt', ''),
+                    'channel_id': snippet.get('channelId', ''),
+                    'channel_title': snippet.get('channelTitle', ''),
+                    'thumbnail': snippet.get('thumbnails', {}).get('default', {}).get('url', ''),
+                    'content': content,
+                    'group_id': snippet.get('groupId', ''),
+                })
+
+            return {
+                'activities': activities,
+                'total_results': response.get('pageInfo', {}).get('totalResults', len(activities)),
+                'next_page_token': response.get('nextPageToken'),
+                'prev_page_token': response.get('prevPageToken'),
+                'quota_cost': 1,
+            }
+
+        except Exception as e:
+            raise RuntimeError(f"Failed to get channel activities: {e}")
+
+    def get_recent_uploads(self, channel_id: str, max_results: int = 10) -> List[Dict[str, Any]]:
+        """
+        Get recent video uploads from a channel's activity feed.
+
+        Args:
+            channel_id: YouTube channel ID
+            max_results: Maximum number of uploads to return
+
+        Returns:
+            List of recent upload dictionaries
+        """
+        self._ensure_initialized()
+
+        try:
+            result = self.get_channel_activities(channel_id, max_results=50)
+
+            uploads = []
+            for activity in result.get('activities', []):
+                if activity['type'] == 'upload':
+                    content = activity.get('content', {})
+                    uploads.append({
+                        'video_id': content.get('videoId', ''),
+                        'title': activity.get('title', ''),
+                        'description': activity.get('description', ''),
+                        'published_at': activity.get('published_at', ''),
+                        'thumbnail': activity.get('thumbnail', ''),
+                        'url': f"https://www.youtube.com/watch?v={content.get('videoId', '')}",
+                    })
+
+                    if len(uploads) >= max_results:
+                        break
+
+            return uploads
+
+        except Exception as e:
+            raise RuntimeError(f"Failed to get recent uploads: {e}")
+
+    # --- Trending/Popular Videos API ---
+
+    def get_trending_videos(self, region_code: str = 'US',
+                           category_id: str = None,
+                           max_results: int = 25,
+                           page_token: str = None) -> Dict[str, Any]:
+        """
+        Get trending/most popular videos in a region.
+
+        Args:
+            region_code: ISO 3166-1 alpha-2 country code (e.g., 'US', 'GB', 'JP')
+            category_id: Filter by video category ID (optional)
+            max_results: Maximum number of results (max 50)
+            page_token: Token for pagination
+
+        Returns:
+            Dictionary with trending videos and pagination info
+        """
+        self._ensure_initialized()
+
+        try:
+            params = {
+                'part': 'snippet,contentDetails,statistics',
+                'chart': 'mostPopular',
+                'regionCode': region_code,
+                'maxResults': min(max_results, 50),
+            }
+
+            if category_id:
+                params['videoCategoryId'] = category_id
+            if page_token:
+                params['pageToken'] = page_token
+
+            response = self._youtube.videos().list(**params).execute()
+
+            videos = []
+            for item in response.get('items', []):
+                snippet = item.get('snippet', {})
+                statistics = item.get('statistics', {})
+                content_details = item.get('contentDetails', {})
+
+                videos.append({
+                    'video_id': item.get('id', ''),
+                    'title': snippet.get('title', ''),
+                    'description': snippet.get('description', '')[:200],
+                    'channel_id': snippet.get('channelId', ''),
+                    'channel_title': snippet.get('channelTitle', ''),
+                    'published_at': snippet.get('publishedAt', ''),
+                    'thumbnail': snippet.get('thumbnails', {}).get('high', {}).get('url', ''),
+                    'duration': content_details.get('duration', ''),
+                    'view_count': int(statistics.get('viewCount', 0)),
+                    'like_count': int(statistics.get('likeCount', 0)),
+                    'comment_count': int(statistics.get('commentCount', 0)),
+                    'category_id': snippet.get('categoryId', ''),
+                    'tags': snippet.get('tags', []),
+                    'url': f"https://www.youtube.com/watch?v={item.get('id', '')}",
+                })
+
+            return {
+                'videos': videos,
+                'region_code': region_code,
+                'category_id': category_id,
+                'total_results': response.get('pageInfo', {}).get('totalResults', len(videos)),
+                'next_page_token': response.get('nextPageToken'),
+                'prev_page_token': response.get('prevPageToken'),
+                'quota_cost': 1,
+            }
+
+        except Exception as e:
+            raise RuntimeError(f"Failed to get trending videos: {e}")
+
+    def get_trending_by_category(self, region_code: str = 'US',
+                                 language: str = 'en') -> Dict[str, List[Dict[str, Any]]]:
+        """
+        Get trending videos organized by category.
+
+        Args:
+            region_code: ISO 3166-1 alpha-2 country code
+            language: Language for category names
+
+        Returns:
+            Dictionary mapping category names to lists of trending videos
+        """
+        self._ensure_initialized()
+
+        try:
+            # Get categories for the region
+            categories = self.get_video_categories(region_code, language)
+
+            trending_by_category = {}
+
+            # Get trending for each assignable category
+            for category in categories:
+                if category['assignable']:
+                    try:
+                        result = self.get_trending_videos(
+                            region_code=region_code,
+                            category_id=category['id'],
+                            max_results=10
+                        )
+                        if result['videos']:
+                            trending_by_category[category['title']] = result['videos']
+                    except:
+                        continue  # Skip categories with no trending videos
+
+            return trending_by_category
+
+        except Exception as e:
+            raise RuntimeError(f"Failed to get trending by category: {e}")
+
+    # --- Channel Sections API ---
+
+    def get_channel_sections(self, channel_id: str,
+                            language: str = None) -> List[Dict[str, Any]]:
+        """
+        Get channel sections (shelves) that organize content on a channel page.
+
+        Sections can include: uploads, playlists, featured channels, etc.
+
+        Args:
+            channel_id: YouTube channel ID
+            language: Language for localized metadata
+
+        Returns:
+            List of channel section dictionaries
+        """
+        self._ensure_initialized()
+
+        try:
+            params = {
+                'part': 'snippet,contentDetails',
+                'channelId': channel_id,
+            }
+
+            if language:
+                params['hl'] = language
+
+            response = self._youtube.channelSections().list(**params).execute()
+
+            sections = []
+            for item in response.get('items', []):
+                snippet = item.get('snippet', {})
+                content_details = item.get('contentDetails', {})
+
+                sections.append({
+                    'section_id': item.get('id', ''),
+                    'type': snippet.get('type', ''),
+                    'title': snippet.get('title', ''),
+                    'position': snippet.get('position', 0),
+                    'default_language': snippet.get('defaultLanguage', ''),
+                    'localized_title': snippet.get('localized', {}).get('title', ''),
+                    'style': snippet.get('style', ''),
+                    'playlists': content_details.get('playlists', []),
+                    'channels': content_details.get('channels', []),
+                })
+
+            # Sort by position
+            sections.sort(key=lambda x: x['position'])
+
+            return sections
+
+        except Exception as e:
+            raise RuntimeError(f"Failed to get channel sections: {e}")
+
+    def get_channel_featured_channels(self, channel_id: str) -> List[Dict[str, Any]]:
+        """
+        Get featured channels from a channel's sections.
+
+        Args:
+            channel_id: YouTube channel ID
+
+        Returns:
+            List of featured channel IDs
+        """
+        self._ensure_initialized()
+
+        try:
+            sections = self.get_channel_sections(channel_id)
+
+            featured_channels = []
+            for section in sections:
+                if section['type'] in ['multiplePlaylists', 'multipleChannels', 'singlePlaylist']:
+                    featured_channels.extend(section.get('channels', []))
+
+            return list(set(featured_channels))  # Remove duplicates
+
+        except Exception as e:
+            raise RuntimeError(f"Failed to get featured channels: {e}")
+
+    # --- Enhanced Channel Info ---
+
+    def get_channel_info(self, channel_id: str = None,
+                        username: str = None,
+                        handle: str = None) -> Dict[str, Any]:
+        """
+        Get comprehensive channel information.
+
+        Provide ONE of: channel_id, username, or handle.
+
+        Args:
+            channel_id: YouTube channel ID (e.g., 'UC...')
+            username: Legacy YouTube username
+            handle: YouTube handle (e.g., '@MrBeast')
+
+        Returns:
+            Dictionary with comprehensive channel info
+        """
+        self._ensure_initialized()
+
+        try:
+            params = {
+                'part': 'snippet,contentDetails,statistics,brandingSettings,topicDetails,status',
+            }
+
+            if channel_id:
+                params['id'] = channel_id
+            elif username:
+                params['forUsername'] = username
+            elif handle:
+                # Handle needs to be searched
+                params['forHandle'] = handle
+            else:
+                raise ValueError("Provide one of: channel_id, username, or handle")
+
+            response = self._youtube.channels().list(**params).execute()
+
+            if not response.get('items'):
+                return None
+
+            item = response['items'][0]
+            snippet = item.get('snippet', {})
+            statistics = item.get('statistics', {})
+            content_details = item.get('contentDetails', {})
+            branding = item.get('brandingSettings', {})
+            topic_details = item.get('topicDetails', {})
+            status = item.get('status', {})
+
+            return {
+                'channel_id': item.get('id', ''),
+                'title': snippet.get('title', ''),
+                'description': snippet.get('description', ''),
+                'custom_url': snippet.get('customUrl', ''),
+                'published_at': snippet.get('publishedAt', ''),
+                'country': snippet.get('country', ''),
+                'default_language': snippet.get('defaultLanguage', ''),
+
+                # Thumbnails
+                'thumbnail_default': snippet.get('thumbnails', {}).get('default', {}).get('url', ''),
+                'thumbnail_medium': snippet.get('thumbnails', {}).get('medium', {}).get('url', ''),
+                'thumbnail_high': snippet.get('thumbnails', {}).get('high', {}).get('url', ''),
+
+                # Statistics
+                'view_count': int(statistics.get('viewCount', 0)),
+                'subscriber_count': int(statistics.get('subscriberCount', 0)),
+                'hidden_subscriber_count': statistics.get('hiddenSubscriberCount', False),
+                'video_count': int(statistics.get('videoCount', 0)),
+
+                # Content details
+                'uploads_playlist': content_details.get('relatedPlaylists', {}).get('uploads', ''),
+                'likes_playlist': content_details.get('relatedPlaylists', {}).get('likes', ''),
+                'favorites_playlist': content_details.get('relatedPlaylists', {}).get('favorites', ''),
+
+                # Branding
+                'keywords': branding.get('channel', {}).get('keywords', ''),
+                'trailer_video_id': branding.get('channel', {}).get('unsubscribedTrailer', ''),
+                'featured_channels_title': branding.get('channel', {}).get('featuredChannelsTitle', ''),
+                'featured_channels_urls': branding.get('channel', {}).get('featuredChannelsUrls', []),
+                'banner_url': branding.get('image', {}).get('bannerExternalUrl', ''),
+
+                # Topics
+                'topic_ids': topic_details.get('topicIds', []),
+                'topic_categories': topic_details.get('topicCategories', []),
+
+                # Status
+                'privacy_status': status.get('privacyStatus', ''),
+                'is_linked': status.get('isLinked', False),
+                'long_uploads_status': status.get('longUploadsStatus', ''),
+                'made_for_kids': status.get('madeForKids', False),
+            }
+
+        except Exception as e:
+            raise RuntimeError(f"Failed to get channel info: {e}")
+
+    def get_multiple_channels(self, channel_ids: List[str]) -> List[Dict[str, Any]]:
+        """
+        Get information for multiple channels at once.
+
+        Args:
+            channel_ids: List of YouTube channel IDs (max 50)
+
+        Returns:
+            List of channel info dictionaries
+        """
+        self._ensure_initialized()
+
+        try:
+            # Limit to 50 channels per request
+            channel_ids = channel_ids[:50]
+
+            response = self._youtube.channels().list(
+                part='snippet,statistics',
+                id=','.join(channel_ids)
+            ).execute()
+
+            channels = []
+            for item in response.get('items', []):
+                snippet = item.get('snippet', {})
+                statistics = item.get('statistics', {})
+
+                channels.append({
+                    'channel_id': item.get('id', ''),
+                    'title': snippet.get('title', ''),
+                    'description': snippet.get('description', '')[:200],
+                    'custom_url': snippet.get('customUrl', ''),
+                    'thumbnail': snippet.get('thumbnails', {}).get('default', {}).get('url', ''),
+                    'subscriber_count': int(statistics.get('subscriberCount', 0)),
+                    'video_count': int(statistics.get('videoCount', 0)),
+                    'view_count': int(statistics.get('viewCount', 0)),
+                })
+
+            return channels
+
+        except Exception as e:
+            raise RuntimeError(f"Failed to get multiple channels: {e}")

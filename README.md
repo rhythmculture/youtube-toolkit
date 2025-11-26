@@ -30,6 +30,9 @@ If one method fails, it automatically tries the next one, ensuring your download
 - **Archive Mode** - Track downloads to prevent re-downloading (v0.5+)
 - **Chapter Splitting** - Split videos by chapters into separate files (v0.5+)
 - **Enhanced Audio** - Download audio with embedded metadata and artwork (v0.5+)
+- **Match Filters** - Filter videos by duration, views, date, uploader, etc. (v0.6+)
+- **Metadata Export** - Export comprehensive metadata to JSON files (v0.6+)
+- **YouTube Shorts** - Full support for downloading and listing Shorts (v0.6+)
 
 ## 🏗️ Architecture
 
@@ -558,6 +561,123 @@ formats = toolkit.subtitles.supported_formats()
 # ['srt', 'vtt', 'ass', 'json3', 'ttml']
 ```
 
+## 🆕 New Features (v0.6+)
+
+### Match Filters - Download Only What You Want
+
+Filter videos by duration, views, upload date, and more:
+
+```python
+from youtube_toolkit import YouTubeToolkit
+
+toolkit = YouTubeToolkit()
+
+# Download video only if it's longer than 10 minutes
+path = toolkit.filter.download(
+    "https://youtube.com/watch?v=...",
+    match_filter="duration > 600"
+)
+
+# Preview videos matching filter (without downloading)
+videos = toolkit.filter.preview(
+    "https://youtube.com/playlist?list=...",
+    match_filter="view_count > 10000"
+)
+print(f"Found {len(videos)} videos with 10k+ views")
+
+# Filter playlist with convenient parameters
+popular_videos = toolkit.filter.playlist(
+    "https://youtube.com/playlist?list=...",
+    min_views=10000,        # Minimum views
+    min_duration=300,       # At least 5 minutes
+    max_duration=1200,      # At most 20 minutes
+    title_contains="tutorial"  # Title must contain this
+)
+
+# Batch download with filter
+files = toolkit.filter.batch_download(
+    "https://youtube.com/playlist?list=...",
+    match_filter="duration > 300 & view_count > 5000",
+    max_downloads=10
+)
+print(f"Downloaded {len(files)} files")
+
+# Filter expression syntax:
+# - Comparison: <, <=, >, >=, =, !=
+# - Logical: & (and), | (or)
+# - Fields: duration, view_count, like_count, upload_date, uploader, title
+# Examples:
+#   "duration > 600"                    - Longer than 10 minutes
+#   "view_count > 10000"                - More than 10k views
+#   "upload_date >= 20240101"           - From 2024 onwards
+#   "duration > 300 & view_count > 1000" - Combined filters
+```
+
+### Metadata Export - Archive Video Information
+
+Export comprehensive metadata without downloading videos:
+
+```python
+# Export metadata only (no video download)
+json_path = toolkit.metadata.export("https://youtube.com/watch?v=...", format='json')
+print(f"Metadata saved to: {json_path}")  # video_id.info.json
+
+# Get comprehensive metadata (50+ fields)
+data = toolkit.metadata.full("https://youtube.com/watch?v=...")
+print(f"Title: {data['title']}")
+print(f"Channel: {data['channel']} ({data['channel_follower_count']} followers)")
+print(f"Categories: {data['categories']}")
+print(f"Tags: {data['tags']}")
+print(f"Available subtitles: {data['subtitles']}")
+print(f"Formats available: {data['formats_count']}")
+
+# Download video with all metadata files
+files = toolkit.metadata.download_with_files(
+    "https://youtube.com/watch?v=...",
+    write_info_json=True,      # Creates .info.json
+    write_description=True,    # Creates .description
+    write_thumbnail=True,      # Downloads thumbnail
+    write_subtitles=True,      # Downloads subtitles
+    subtitle_langs=['en', 'es']
+)
+print(f"Video: {files['video']}")
+print(f"Metadata: {files['info_json']}")
+print(f"Thumbnail: {files['thumbnail']}")
+```
+
+### YouTube Shorts - Full Shorts Support
+
+Download and manage YouTube Shorts:
+
+```python
+# Check if URL is a Short
+if toolkit.shorts.is_short("https://youtube.com/shorts/abc123"):
+    print("This is a YouTube Short!")
+
+# Get Short information
+info = toolkit.shorts.info("https://youtube.com/shorts/abc123")
+print(f"Title: {info['title']}")
+print(f"Duration: {info['duration']}s")  # Shorts are max 60 seconds
+print(f"Views: {info['view_count']}")
+
+# Download a Short
+path = toolkit.shorts.download("https://youtube.com/shorts/abc123")
+print(f"Downloaded to: {path}")
+
+# Get all Shorts from a channel
+shorts = toolkit.shorts.from_channel("@MrBeast", max_results=20)
+for short in shorts:
+    print(f"- {short['title']} ({short['url']})")
+
+# Batch download Shorts from a channel
+files = toolkit.shorts.batch_download(
+    "@MrBeast",
+    max_downloads=5,
+    format='mp4'
+)
+print(f"Downloaded {len(files)} Shorts")
+```
+
 ## 📚 Usage Examples
 
 ### Download Audio
@@ -712,6 +832,23 @@ The Action-Based API provides 3 core actions with smart defaults and explicit su
 | `thumbnail` | `.download(url)` | `str` | Download thumbnail |
 | | `.url(url)` | `str` | Get thumbnail URL |
 | `audio_enhanced` | `.download(url, ...)` | `str` | Audio with metadata/artwork |
+
+### v0.6 API - Match Filters, Metadata Export, YouTube Shorts
+
+| Sub-API | Method | Returns | Description |
+|---------|--------|---------|-------------|
+| `filter` | `.download(url, match_filter)` | `str\|None` | Download with filter criteria |
+| | `.preview(url, match_filter)` | `List[Dict]` | Preview matching videos |
+| | `.playlist(url, min_views, ...)` | `List[Dict]` | Filter playlist with params |
+| | `.batch_download(url, match_filter)` | `List[str]` | Batch download with filter |
+| `metadata` | `.download_with_files(url)` | `Dict[str,str]` | Download with .info.json, .description |
+| | `.export(url, format)` | `str` | Export metadata only (no video) |
+| | `.full(url)` | `Dict` | Get comprehensive 50+ field metadata |
+| `shorts` | `.is_short(url)` | `bool` | Check if URL is a Short |
+| | `.info(url)` | `Dict` | Get Short info |
+| | `.download(url)` | `str` | Download a Short |
+| | `.from_channel(channel_url)` | `List[Dict]` | Get Shorts from channel |
+| | `.batch_download(channel_url)` | `List[str]` | Download multiple Shorts |
 
 ### Using Filters
 ```python
@@ -883,7 +1020,7 @@ youtube-toolkit/
 │   │   └── scrapetube_handler.py   # ScrapeTube backend (optional, v0.3+)
 │   ├── core/                       # Core data structures (VideoInfo, etc.)
 │   └── utils/                      # Utility functions
-├── tests/                          # Test suite (146 tests)
+├── tests/                          # Test suite (174 tests)
 ├── examples/                       # Usage examples
 ├── pyproject.toml                  # Package configuration
 └── README.md                       # This file
