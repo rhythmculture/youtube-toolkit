@@ -1,0 +1,1263 @@
+"""YouTube API handler for YouTube Toolkit.
+
+This handler implements rich metadata extraction using the official YouTube Data API v3.
+"""
+
+import os
+from typing import Dict, List, Optional, Any
+from datetime import datetime
+from dotenv import load_dotenv
+
+
+# Load environment variables
+load_dotenv()
+
+
+class YouTubeAPIHandler:
+    """Handler for YouTube Data API v3 functionality."""
+    
+    def __init__(self):
+        """Initialize the YouTube API handler."""
+        self._youtube = None
+        self._initialized = False
+        self._api_key = None
+    
+    def _ensure_initialized(self):
+        """Ensure YouTube API is available and initialized."""
+        if not self._initialized:
+            try:
+                from googleapiclient.discovery import build
+                
+                # Get API key from environment
+                self._api_key = os.getenv("YOUTUBE_API_KEY")
+                if not self._api_key:
+                    raise ValueError("YOUTUBE_API_KEY environment variable is not set")
+                
+                self._youtube = build('youtube', 'v3', developerKey=self._api_key)
+                self._initialized = True
+                
+            except ImportError:
+                raise ImportError("google-api-python-client is not installed. Install with: uv add google-api-python-client")
+            except Exception as e:
+                raise RuntimeError(f"Failed to initialize YouTube API: {e}")
+    
+    def parse_url(self, video_url: str) -> str:
+        """
+        Extract video ID from YouTube URL.
+        
+        Args:
+            video_url: YouTube video URL
+            
+        Returns:
+            Video ID string
+        """
+        if 'v=' in video_url:
+            video_id = video_url.split('v=')[1]
+            if '&' in video_id:
+                video_id = video_id.split('&')[0]
+        elif 'youtu.be/' in video_url:
+            video_id = video_url.split('youtu.be/')[1].split('?')[0]
+        else:
+            raise ValueError("Invalid YouTube URL format")
+        
+        return video_id
+    
+    def fetch_metadata(self, video_url: str) -> Dict[str, Any]:
+        """
+        Fetch rich metadata for a given YouTube video URL using the official API.
+        
+        Args:
+            video_url: YouTube video URL
+            
+        Returns:
+            Dictionary with comprehensive video metadata
+        """
+        self._ensure_initialized()
+        
+        try:
+            video_id = self.parse_url(video_url)
+            response = self._youtube.videos().list(
+                part='snippet,contentDetails,statistics',
+                id=video_id
+            ).execute()
+
+            if not response["items"]:
+                return {"error": "Video not found or invalid ID"}
+
+            video = response["items"][0]
+            snippet = video["snippet"]
+            statistics = video.get("statistics", {})
+            content_details = video.get("contentDetails", {})
+
+            return {
+                "title": snippet.get("title"),
+                "description": snippet.get("description"),
+                "channelTitle": snippet.get("channelTitle"),
+                "publishedAt": snippet.get("publishedAt"),
+                "tags": snippet.get("tags", []),
+                "categoryId": snippet.get("categoryId"),
+                "duration": content_details.get("duration"),
+                "viewCount": int(statistics.get("viewCount", 0)),
+                "likeCount": int(statistics.get("likeCount", 0)),
+                "commentCount": int(statistics.get("commentCount", 0)),
+                "videoId": video_id,
+                "videoUrl": video_url
+            }
+            
+        except Exception as e:
+            return {"error": f"Failed to fetch metadata: {e}"}
+    
+    def search_videos(self, query: str, max_results: int = 20, filters: Optional[Dict] = None) -> List[Dict[str, Any]]:
+        """
+        Search for YouTube videos using the official YouTube Data API.
+        
+        Args:
+            query: Search query string
+            max_results: Maximum number of results to return (max 50)
+            filters: Optional search filters (legacy compatibility)
+            
+        Returns:
+            List of video dictionaries with search results
+        """
+        self._ensure_initialized()
+        
+        try:
+            # Limit max_results to API maximum
+            max_results = min(max_results, 50)
+            
+            response = self._youtube.search().list(
+                part='snippet',
+                q=query,
+                type='video',
+                maxResults=max_results,
+                order='relevance'
+            ).execute()
+            
+            results = []
+            
+            for item in response.get('items', []):
+                try:
+                    snippet = item['snippet']
+                    video_id = item['id']['videoId']
+                    
+                    # Get additional video details
+                    video_response = self._youtube.videos().list(
+                        part='contentDetails,statistics',
+                        id=video_id
+                    ).execute()
+                    
+                    video_details = video_response.get('items', [{}])[0]
+                    content_details = video_details.get('contentDetails', {})
+                    statistics = video_details.get('statistics', {})
+                    
+                    results.append({
+                        'title': snippet.get('title', 'Unknown Title'),
+                        'watch_url': f"https://www.youtube.com/watch?v={video_id}",
+                        'video_id': video_id,
+                        'author': snippet.get('channelTitle', 'Unknown Author'),
+                        'length': self._parse_duration(content_details.get('duration', 'PT0S')),
+                        'views': int(statistics.get('viewCount', 0)),
+                        'publish_date': snippet.get('publishedAt'),
+                        'description': snippet.get('description', '')[:200] + "..." if len(snippet.get('description', '')) > 200 else snippet.get('description', '')
+                    })
+                    
+                except Exception as video_error:
+                    print(f"Warning: Failed to process search result: {video_error}")
+                    continue
+            
+            return results
+            
+        except Exception as e:
+            return []
+    
+    def advanced_search(self, query: str, filters: Optional[Dict] = None, max_results: int = 20) -> Dict[str, Any]:
+        """
+        Advanced search using YouTube Data API with comprehensive filtering and results.
+        
+        Args:
+            query: Search query string
+            filters: SearchFilters object with advanced filtering options
+            max_results: Maximum number of results to return (max 50)
+            
+        Returns:
+            Dictionary with comprehensive search results including thumbnails, live content, etc.
+        """
+        self._ensure_initialized()
+        
+        try:
+            from ..core.search import SearchResult, SearchResultItem, SearchFilters, Thumbnails, Thumbnail
+            from datetime import datetime
+            
+            # Use provided filters or create default
+            if filters is None:
+                filters = SearchFilters()
+            elif isinstance(filters, dict):
+                # Convert dict to SearchFilters object
+                filters = SearchFilters(**filters)
+            
+            # Limit max_results to API maximum
+            max_results = min(max_results, 50)
+            
+            # Build search parameters
+            search_params = {
+                'part': 'snippet',
+                'q': query,
+                'maxResults': max_results,
+                'order': filters.order
+            }
+            
+            # FIXED: Always add type filtering - YouTube API requires explicit type=video for video-specific filters
+            search_params['type'] = filters.type
+            
+            # Add channel filtering
+            if filters.channel_id:
+                search_params['channelId'] = filters.channel_id
+            if filters.channel_type:
+                search_params['channelType'] = filters.channel_type
+            
+            # Add date filtering
+            if filters.published_after:
+                search_params['publishedAfter'] = filters.published_after.isoformat() + 'Z'
+            if filters.published_before:
+                search_params['publishedBefore'] = filters.published_before.isoformat() + 'Z'
+            
+            # Add video-specific filters
+            if filters.video_duration:
+                search_params['videoDuration'] = filters.video_duration
+            if filters.video_definition:
+                search_params['videoDefinition'] = filters.video_definition
+            if filters.video_dimension:
+                search_params['videoDimension'] = filters.video_dimension
+            if filters.video_caption:
+                search_params['videoCaption'] = filters.video_caption
+            if filters.video_license:
+                search_params['videoLicense'] = filters.video_license
+            if filters.video_embeddable:
+                search_params['videoEmbeddable'] = filters.video_embeddable
+            if filters.video_syndicated:
+                search_params['videoSyndicated'] = filters.video_syndicated
+            if filters.video_type:
+                search_params['videoType'] = filters.video_type
+            
+            # NEW: Event type filtering
+            if filters.event_type:
+                search_params['eventType'] = filters.event_type
+            
+            # NEW: Content ownership filtering
+            if filters.for_content_owner:
+                search_params['forContentOwner'] = 'true'
+            if filters.for_developer:
+                search_params['forDeveloper'] = 'true'
+            if filters.for_mine:
+                search_params['forMine'] = 'true'
+            if filters.on_behalf_of_content_owner:
+                search_params['onBehalfOfContentOwner'] = filters.on_behalf_of_content_owner
+            
+            # NEW: Video category filtering
+            if filters.video_category_id:
+                search_params['videoCategoryId'] = filters.video_category_id
+            
+            # NEW: Paid promotion filtering
+            if filters.video_paid_product_placement:
+                search_params['videoPaidProductPlacement'] = filters.video_paid_product_placement
+            
+            # NEW: Topic filtering
+            if filters.topic_id:
+                search_params['topicId'] = filters.topic_id
+            
+            # Add location and language filters
+            if filters.location:
+                search_params['location'] = filters.location
+            if filters.location_radius:
+                search_params['locationRadius'] = filters.location_radius
+            if filters.relevance_language:
+                search_params['relevanceLanguage'] = filters.relevance_language
+            
+            # Add region and safety filters
+            if filters.region_code:
+                search_params['regionCode'] = filters.region_code
+            if filters.safe_search:
+                search_params['safeSearch'] = filters.safe_search
+            
+            # NEW: Pagination support
+            if filters.page_token:
+                search_params['pageToken'] = filters.page_token
+            
+            # Use max_results from filters
+            search_params['maxResults'] = filters.max_results
+            
+            # Validate filters before making request
+            validation_errors = filters.validate_filters()
+            if validation_errors:
+                return {
+                    'items': [],
+                    'total_results': 0,
+                    'query': query,
+                    'error': f"Filter validation errors: {'; '.join(validation_errors)}",
+                    'backend_used': 'youtube_api'
+                }
+            
+            # Execute search
+            response = self._youtube.search().list(**search_params).execute()
+            
+            # Process results
+            items = []
+            for item in response.get('items', []):
+                try:
+                    snippet = item['snippet']
+                    item_id = item['id']
+                    
+                    # Determine resource type and extract ID
+                    kind = item_id.get('kind', 'youtube#video')
+                    video_id = item_id.get('videoId')
+                    channel_id = item_id.get('channelId')
+                    playlist_id = item_id.get('playlistId')
+                    
+                    # Parse thumbnails
+                    thumbnails_data = snippet.get('thumbnails', {})
+                    thumbnails = Thumbnails(
+                        default=Thumbnail(**thumbnails_data['default']) if thumbnails_data.get('default') else None,
+                        medium=Thumbnail(**thumbnails_data['medium']) if thumbnails_data.get('medium') else None,
+                        high=Thumbnail(**thumbnails_data['high']) if thumbnails_data.get('high') else None,
+                        standard=Thumbnail(**thumbnails_data['standard']) if thumbnails_data.get('standard') else None,
+                        maxres=Thumbnail(**thumbnails_data['maxres']) if thumbnails_data.get('maxres') else None,
+                    )
+                    
+                    # Parse published date
+                    published_at = None
+                    if snippet.get('publishedAt'):
+                        try:
+                            published_at = datetime.fromisoformat(snippet['publishedAt'].replace('Z', '+00:00'))
+                        except:
+                            pass
+                    
+                    # Create search result item
+                    search_item = SearchResultItem(
+                        kind=kind,
+                        etag=item.get('etag', ''),
+                        video_id=video_id,
+                        channel_id=channel_id,
+                        playlist_id=playlist_id,
+                        title=snippet.get('title', ''),
+                        description=snippet.get('description', ''),
+                        channel_title=snippet.get('channelTitle', ''),
+                        published_at=published_at,
+                        thumbnails=thumbnails,
+                        live_broadcast_content=snippet.get('liveBroadcastContent', 'none')
+                    )
+                    
+                    items.append(search_item)
+                    
+                except Exception as item_error:
+                    print(f"Warning: Failed to process search item: {item_error}")
+                    continue
+            
+            # Create comprehensive search result with quota information
+            search_result = SearchResult(
+                items=items,
+                total_results=response.get('pageInfo', {}).get('totalResults', len(items)),
+                query=query,
+                filters_applied=filters,
+                backend_used='youtube_api',
+                next_page_token=response.get('nextPageToken'),
+                prev_page_token=response.get('prevPageToken')
+            )
+            
+            result_dict = search_result.to_dict()
+            
+            # Add quota and API information
+            result_dict['quota_cost'] = 100  # YouTube Search API costs 100 quota units
+            result_dict['api_info'] = {
+                'region_code': response.get('regionCode'),
+                'page_info': response.get('pageInfo', {}),
+                'etag': response.get('etag'),
+                'kind': response.get('kind')
+            }
+            
+            return result_dict
+            
+        except Exception as e:
+            # FIXED: Don't fall back - raise the error as requested by user
+            raise RuntimeError(f"Advanced search failed: {e}")
+    
+    def _parse_duration(self, duration: str) -> int:
+        """
+        Parse ISO 8601 duration string to seconds.
+        
+        Args:
+            duration: ISO 8601 duration string (e.g., "PT4M13S")
+            
+        Returns:
+            Duration in seconds
+        """
+        try:
+            import re
+            
+            # Parse ISO 8601 duration format
+            match = re.match(r'PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?', duration)
+            if match:
+                hours = int(match.group(1) or 0)
+                minutes = int(match.group(2) or 0)
+                seconds = int(match.group(3) or 0)
+                return hours * 3600 + minutes * 60 + seconds
+            return 0
+        except:
+            return 0
+    
+    def get_playlist_urls(self, playlist_url: str) -> List[str]:
+        """
+        Extract video URLs from playlist using YouTube Data API.
+        
+        Args:
+            playlist_url: YouTube playlist URL
+            
+        Returns:
+            List of video URLs
+        """
+        self._ensure_initialized()
+        
+        try:
+            playlist_id = self._extract_playlist_id(playlist_url)
+            if not playlist_id:
+                print("❌ Could not extract playlist ID from URL")
+                return []
+            
+            video_urls = []
+            next_page_token = None
+            
+            while True:
+                request = self._youtube.playlistItems().list(
+                    part='snippet',
+                    playlistId=playlist_id,
+                    maxResults=50,
+                    pageToken=next_page_token
+                )
+                response = request.execute()
+                
+                for item in response['items']:
+                    video_id = item['snippet']['resourceId']['videoId']
+                    video_url = f'https://www.youtube.com/watch?v={video_id}'
+                    video_urls.append(video_url)
+                
+                next_page_token = response.get('nextPageToken')
+                if not next_page_token:
+                    break
+            
+            if video_urls:
+                print(f"✅ YouTube API playlist: {len(video_urls)} videos found")
+                return video_urls
+            else:
+                print("⚠️  YouTube API playlist: No videos found")
+                return []
+                
+        except Exception as e:
+            print(f"❌ YouTube API playlist failed: {e}")
+            return []
+    
+    def get_playlist_info(self, playlist_url: str) -> Dict[str, Any]:
+        """
+        Get basic playlist information.
+        
+        Args:
+            playlist_url: YouTube playlist URL
+            
+        Returns:
+            Dictionary with playlist info
+        """
+        self._ensure_initialized()
+        
+        try:
+            playlist_id = self._extract_playlist_id(playlist_url)
+            if not playlist_id:
+                return {
+                    'title': 'YouTube Playlist',
+                    'description': 'Playlist downloaded with YouTube Toolkit'
+                }
+            
+            request = self._youtube.playlists().list(
+                part='snippet',
+                id=playlist_id
+            )
+            response = request.execute()
+            
+            if response['items']:
+                playlist = response['items'][0]
+                snippet = playlist['snippet']
+                return {
+                    'title': snippet.get('title', 'YouTube Playlist'),
+                    'description': snippet.get('description', 'Playlist downloaded with YouTube Toolkit')
+                }
+            else:
+                return {
+                    'title': 'YouTube Playlist',
+                    'description': 'Playlist downloaded with YouTube Toolkit'
+                }
+                
+        except Exception as e:
+            print(f"❌ YouTube API playlist info failed: {e}")
+            return {
+                'title': 'YouTube Playlist',
+                'description': 'Playlist downloaded with YouTube Toolkit'
+            }
+    
+    def _extract_playlist_id(self, playlist_url: str) -> str:
+        """
+        Extract playlist ID from YouTube playlist URL.
+        
+        Args:
+            playlist_url: YouTube playlist URL
+            
+        Returns:
+            Playlist ID string
+        """
+        if 'list=' in playlist_url:
+            playlist_id = playlist_url.split('list=')[1]
+            if '&' in playlist_id:
+                playlist_id = playlist_id.split('&')[0]
+            return playlist_id
+        else:
+            return ""
+    
+    def download_captions(self, url: str, language_code: str = 'en', 
+                          output_path: str = None) -> str:
+        """
+        Download captions using YouTube Data API (legacy method for backward compatibility).
+        
+        Args:
+            url: YouTube video URL
+            language_code: Language code (e.g., 'en', 'es', 'fr')
+            output_path: Output file path (optional)
+            
+        Returns:
+            Path to downloaded caption file
+        """
+        self._ensure_initialized()
+        
+        try:
+            # Extract video ID
+            video_id = self.extract_video_id(url)
+            if not video_id:
+                raise RuntimeError("Could not extract video ID from URL")
+            
+            # Get available caption tracks
+            captions_request = self._youtube.captions().list(
+                part='snippet',
+                videoId=video_id
+            )
+            captions_response = captions_request.execute()
+            
+            if not captions_response.get('items'):
+                raise RuntimeError("No captions available for this video")
+            
+            # Find caption track in requested language
+            caption_id = None
+            for item in captions_response['items']:
+                snippet = item['snippet']
+                if snippet.get('language') == language_code:
+                    caption_id = item['id']
+                    break
+            
+            # Fallback to first available caption
+            if not caption_id:
+                caption_id = captions_response['items'][0]['id']
+                print(f"Language '{language_code}' not available. Using first available caption.")
+            
+            # Determine output path
+            if not output_path:
+                output_path = f"{video_id}_captions_{language_code}.txt"
+            
+            # Download caption content
+            caption_request = self._youtube.captions().download(
+                id=caption_id,
+                tfmt='srt'  # SubRip format
+            )
+            
+            # Save caption to file
+            with open(output_path, 'wb') as f:
+                f.write(caption_request.execute())
+            
+            return output_path
+            
+        except Exception as e:
+            raise RuntimeError(f"Failed to download captions with YouTube API: {e}")
+    
+    def advanced_list_captions(self, video_url: str, filters: Optional[Dict] = None) -> Dict[str, Any]:
+        """
+        Advanced caption listing with comprehensive filtering and metadata.
+        
+        Args:
+            video_url: YouTube video URL
+            filters: CaptionFilters object or dict with advanced filtering options
+            
+        Returns:
+            Dictionary with comprehensive caption track information
+        """
+        self._ensure_initialized()
+        
+        try:
+            from ..core.captions import (
+                CaptionResult, CaptionFilters, CaptionTrack, CaptionTrackType,
+                CaptionStatus, CaptionAnalytics
+            )
+            from datetime import datetime
+            
+            # Use provided filters or create default
+            if filters is None:
+                filters = CaptionFilters()
+            elif isinstance(filters, dict):
+                filters = CaptionFilters(**filters)
+            
+            # Validate filters
+            validation_errors = filters.validate_filters()
+            if validation_errors:
+                return {
+                    'tracks': [],
+                    'error': f"Filter validation errors: {'; '.join(validation_errors)}",
+                    'quota_cost': 50
+                }
+            
+            video_id = self.parse_url(video_url)
+            
+            # Build caption list request parameters
+            request_params = {
+                'part': ['id', 'snippet'],
+                'videoId': video_id
+            }
+            
+            # Execute caption list request
+            response = self._youtube.captions().list(**request_params).execute()
+            
+            # Process caption tracks
+            tracks = []
+            language_counts = {}
+            auto_generated_count = 0
+            manual_count = 0
+            accessible_count = 0
+            
+            for item in response.get('items', []):
+                try:
+                    snippet = item['snippet']
+                    
+                    # Parse track type
+                    track_type = CaptionTrackType.STANDARD
+                    if snippet.get('trackKind') == 'asr':
+                        track_type = CaptionTrackType.ASR
+                    
+                    # Parse status
+                    status = CaptionStatus.SERVING
+                    if snippet.get('status') == 'syncing':
+                        status = CaptionStatus.SYNCING
+                    elif snippet.get('status') == 'failed':
+                        status = CaptionStatus.FAILED
+                    
+                    # Create caption track
+                    track = CaptionTrack(
+                        caption_id=item['id'],
+                        language=snippet.get('name', ''),
+                        language_code=snippet.get('language', ''),
+                        name=snippet.get('name', ''),
+                        track_type=track_type,
+                        status=status,
+                        is_auto_generated=snippet.get('trackKind') == 'asr',
+                        is_cc=snippet.get('isCC', False),
+                        is_draft=snippet.get('isDraft', False),
+                        is_easy_reader=snippet.get('isEasyReader', False),
+                        is_large=snippet.get('isLarge', False),
+                        last_updated=self._parse_datetime(snippet['lastUpdated']) if snippet.get('lastUpdated') else None
+                    )
+                    
+                    # Apply filters
+                    if self._apply_caption_filters(track, filters):
+                        tracks.append(track)
+                        
+                        # Update statistics
+                        if track.is_accessible:
+                            accessible_count += 1
+                        if track.is_auto_generated:
+                            auto_generated_count += 1
+                        else:
+                            manual_count += 1
+                        
+                        # Track language distribution
+                        lang = track.language_code
+                        language_counts[lang] = language_counts.get(lang, 0) + 1
+                
+                except Exception as track_error:
+                    print(f"Warning: Failed to process caption track: {track_error}")
+                    continue
+            
+            # Create analytics
+            analytics = CaptionAnalytics(
+                total_tracks=len(tracks),
+                available_tracks=accessible_count,
+                auto_generated_tracks=auto_generated_count,
+                manual_tracks=manual_count,
+                languages=list(language_counts.keys()),
+                language_distribution=language_counts
+            )
+            
+            # Create comprehensive result
+            result = CaptionResult(
+                tracks=tracks,
+                analytics=analytics,
+                filters_applied=filters,
+                quota_cost=50
+            )
+            
+            return result.to_dict()
+            
+        except Exception as e:
+            print(f"Advanced caption listing failed: {e}")
+            return {
+                'tracks': [],
+                'error': str(e),
+                'quota_cost': 50
+            }
+    
+    def advanced_download_captions(self, video_url: str, caption_id: Optional[str] = None,
+                                 language_code: str = 'en', format: str = 'srt',
+                                 output_path: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Advanced caption download with format conversion and analysis.
+        
+        Args:
+            video_url: YouTube video URL
+            caption_id: Specific caption track ID (optional)
+            language_code: Language code (e.g., 'en', 'es', 'fr')
+            format: Output format ('srt', 'vtt', 'txt', 'ttml')
+            output_path: Output file path (optional)
+            
+        Returns:
+            Dictionary with download results and analysis
+        """
+        self._ensure_initialized()
+        
+        try:
+            from ..core.captions import (
+                CaptionContent, CaptionCue, CaptionFormat, CaptionFormatConverter,
+                CaptionAnalyzer
+            )
+            from datetime import datetime
+            
+            video_id = self.parse_url(video_url)
+            
+            # If no caption_id provided, find the best track
+            if not caption_id:
+                caption_list = self.advanced_list_captions(video_url)
+                tracks = caption_list.get('tracks', [])
+                
+                # Find best track
+                best_track = None
+                for track_data in tracks:
+                    if track_data.get('language_code') == language_code and track_data.get('status') == 'serving':
+                        best_track = track_data
+                        break
+                
+                if not best_track:
+                    # Fall back to first available track
+                    best_track = tracks[0] if tracks else None
+                
+                if not best_track:
+                    raise RuntimeError(f"No captions available for language '{language_code}'")
+                
+                caption_id = best_track['caption_id']
+                language_code = best_track['language_code']
+            
+            # Download caption content
+            try:
+                caption_request = self._youtube.captions().download(
+                    id=caption_id,
+                    tfmt='srt'  # Always download as SRT first
+                )
+                
+                raw_content = caption_request.execute().decode('utf-8')
+            except Exception as api_error:
+                # If YouTube API fails (e.g., requires OAuth2), fall back to other methods
+                raise RuntimeError(f"YouTube API caption download requires OAuth2 authentication. Error: {api_error}")
+            
+            # Parse SRT content
+            cues = CaptionFormatConverter.parse_srt(raw_content)
+            
+            # Create caption content object
+            caption_content = CaptionContent(
+                caption_id=caption_id,
+                language=language_code,
+                language_code=language_code,
+                cues=cues,
+                format=CaptionFormat.SRT,
+                raw_content=raw_content
+            )
+            
+            # Convert format if needed
+            converted_content = raw_content
+            if format.lower() == 'vtt':
+                converted_content = CaptionFormatConverter.srt_to_vtt(raw_content)
+            elif format.lower() == 'txt':
+                converted_content = CaptionFormatConverter.srt_to_txt(raw_content)
+            
+            # Generate output path if not provided
+            if not output_path:
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                output_path = f"{video_id}_captions_{language_code}_{timestamp}.{format}"
+            
+            # Save caption to file
+            with open(output_path, 'w', encoding='utf-8') as f:
+                f.write(converted_content)
+            
+            # Perform analysis
+            analysis = {
+                'total_duration': caption_content.total_duration,
+                'word_count': caption_content.word_count,
+                'cue_count': caption_content.cue_count,
+                'average_cue_duration': caption_content.average_cue_duration,
+                'words_per_minute': CaptionAnalyzer.analyze_reading_speed(cues)['average_wpm'],
+                'language_analysis': CaptionAnalyzer.analyze_language(converted_content),
+                'gaps': CaptionAnalyzer.find_gaps(cues)
+            }
+            
+            return {
+                'success': True,
+                'output_path': output_path,
+                'caption_id': caption_id,
+                'language_code': language_code,
+                'format': format,
+                'content': caption_content,
+                'analysis': analysis,
+                'quota_cost': 50
+            }
+            
+        except Exception as e:
+            # Re-raise the exception so the main toolkit can handle fallback
+            raise e
+    
+    def _parse_datetime(self, datetime_str: str) -> Optional[datetime]:
+        """Parse datetime string with proper handling of microseconds."""
+        try:
+            # Remove Z and replace with +00:00
+            datetime_str = datetime_str.replace('Z', '+00:00')
+            
+            # Handle microseconds with more than 6 digits
+            if '.' in datetime_str and '+' in datetime_str:
+                base_part, tz_part = datetime_str.split('+')
+                if '.' in base_part:
+                    date_part, micro_part = base_part.split('.')
+                    # Truncate microseconds to 6 digits
+                    micro_part = micro_part[:6]
+                    datetime_str = f"{date_part}.{micro_part}+{tz_part}"
+            
+            return datetime.fromisoformat(datetime_str)
+        except Exception:
+            return None
+    
+    def _apply_caption_filters(self, track: 'CaptionTrack', filters: 'CaptionFilters') -> bool:
+        """Apply filters to a caption track."""
+        # Language filtering
+        if filters.language_codes and track.language_code not in filters.language_codes:
+            return False
+        if filters.languages and track.language not in filters.languages:
+            return False
+        
+        # Track type filtering
+        if filters.track_types and track.track_type not in filters.track_types:
+            return False
+        if filters.auto_generated_only and not track.is_auto_generated:
+            return False
+        if filters.manual_only and track.is_auto_generated:
+            return False
+        
+        # Status filtering
+        if filters.statuses and track.status not in filters.statuses:
+            return False
+        if filters.accessible_only and not track.is_accessible:
+            return False
+        
+        # Feature filtering
+        if filters.cc_only and not track.is_cc:
+            return False
+        if filters.draft_only and not track.is_draft:
+            return False
+        if filters.easy_reader_only and not track.is_easy_reader:
+            return False
+        if filters.large_only and not track.is_large:
+            return False
+        
+        return True
+    
+    def extract_video_id(self, url: str) -> str:
+        """
+        Extract video ID from YouTube URL.
+        
+        Args:
+            url: YouTube video URL
+            
+        Returns:
+            Video ID string
+        """
+        import re
+        
+        # YouTube URL patterns
+        patterns = [
+            r'(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})',
+            r'youtube\.com\/watch\?.*v=([a-zA-Z0-9_-]{11})'
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, url)
+            if match:
+                return match.group(1)
+        
+        return ""
+    
+    def fetch_comments(self, video_url: str, max_results: int = 100,
+                      reply_max_results: int = 20, order: str = 'relevance') -> List[Dict[str, Any]]:
+        """
+        Fetch comments from a YouTube video (legacy method for backward compatibility).
+        
+        Args:
+            video_url: YouTube video URL
+            max_results: Maximum number of comments to retrieve
+            reply_max_results: Maximum number of replies per comment
+            order: Comment order ('relevance', 'time', 'rating')
+            
+        Returns:
+            List of comment threads with replies
+        """
+        self._ensure_initialized()
+        
+        try:
+            video_id = self.parse_url(video_url)
+            response = self._youtube.commentThreads().list(
+                part=['snippet', 'replies'],
+                videoId=video_id,
+                order=order,
+                maxResults=max_results
+            ).execute()
+
+            threads = []
+            for item in response.get('items', []):
+                top_snippet = item['snippet']['topLevelComment']['snippet']
+                comment_id = item['snippet']['topLevelComment']['id']
+
+                top_comment = {
+                    'text': top_snippet['textDisplay'],
+                    'likes': top_snippet['likeCount'],
+                    'author': top_snippet['authorDisplayName'],
+                    'published': top_snippet['publishedAt'],
+                    'replies': self.fetch_replies(comment_id, max_results=reply_max_results)
+                }
+
+                threads.append(top_comment)
+
+            return sorted(threads, key=lambda x: x['likes'], reverse=True)
+            
+        except Exception as e:
+            print(f"Error fetching comments: {e}")
+            return []
+    
+    def advanced_fetch_comments(self, video_url: str, filters: Optional[Dict] = None) -> Dict[str, Any]:
+        """
+        Advanced comment fetching with comprehensive filtering, pagination, and analytics.
+        
+        Args:
+            video_url: YouTube video URL
+            filters: CommentFilters object or dict with advanced filtering options
+            
+        Returns:
+            Dictionary with comprehensive comment results including analytics
+        """
+        self._ensure_initialized()
+        
+        try:
+            from ..core.comments import (
+                CommentResult, CommentFilters, Comment, CommentAuthor, 
+                CommentMetrics, CommentAnalytics, CommentSentimentAnalyzer
+            )
+            from datetime import datetime
+            
+            # Use provided filters or create default
+            if filters is None:
+                filters = CommentFilters()
+            elif isinstance(filters, dict):
+                filters = CommentFilters(**filters)
+            
+            # Validate filters
+            validation_errors = filters.validate_filters()
+            if validation_errors:
+                return {
+                    'comments': [],
+                    'total_results': 0,
+                    'error': f"Filter validation errors: {'; '.join(validation_errors)}",
+                    'quota_cost': 1
+                }
+            
+            video_id = self.parse_url(video_url)
+            
+            # Build comment thread request parameters
+            thread_params = {
+                'part': ['snippet', 'replies'],
+                'videoId': video_id,
+                'order': filters.order.value,
+                'maxResults': min(filters.max_results, 100)
+            }
+            
+            # Add pagination
+            if filters.page_token:
+                thread_params['pageToken'] = filters.page_token
+            
+            # Add text format
+            if filters.text_format.value == 'plainText':
+                thread_params['textFormat'] = 'plainText'
+            
+            # Execute comment threads request
+            response = self._youtube.commentThreads().list(**thread_params).execute()
+            
+            # Process comment threads
+            comments = []
+            total_likes = 0
+            total_replies = 0
+            author_counts = {}
+            
+            for item in response.get('items', []):
+                try:
+                    # Parse top-level comment
+                    top_comment_data = item['snippet']['topLevelComment']
+                    snippet = top_comment_data['snippet']
+                    
+                    # Create comment author
+                    author = CommentAuthor(
+                        display_name=snippet.get('authorDisplayName', 'Unknown'),
+                        profile_image_url=snippet.get('authorProfileImageUrl'),
+                        channel_id=snippet.get('authorChannelId', {}).get('value'),
+                        channel_url=snippet.get('authorChannelUrl'),
+                        is_verified=snippet.get('authorChannelVerified', False),
+                        is_channel_owner=snippet.get('authorChannelVerified', False)
+                    )
+                    
+                    # Create comment metrics
+                    metrics = CommentMetrics(
+                        like_count=snippet.get('likeCount', 0),
+                        total_reply_count=item['snippet'].get('totalReplyCount', 0),
+                        updated_at=datetime.fromisoformat(snippet['updatedAt'].replace('Z', '+00:00')) if snippet.get('updatedAt') else None
+                    )
+                    
+                    # Create comment
+                    comment = Comment(
+                        comment_id=top_comment_data['id'],
+                        text=snippet.get('textDisplay', ''),
+                        author=author,
+                        published_at=datetime.fromisoformat(snippet['publishedAt'].replace('Z', '+00:00')),
+                        updated_at=datetime.fromisoformat(snippet['updatedAt'].replace('Z', '+00:00')) if snippet.get('updatedAt') else None,
+                        metrics=metrics,
+                        video_id=video_id
+                    )
+                    
+                    # Process replies if requested
+                    if filters.include_replies and 'replies' in item:
+                        replies_data = item['replies'].get('comments', [])
+                        for reply_data in replies_data[:filters.max_replies_per_comment]:
+                            reply_snippet = reply_data['snippet']
+                            
+                            reply_author = CommentAuthor(
+                                display_name=reply_snippet.get('authorDisplayName', 'Unknown'),
+                                profile_image_url=reply_snippet.get('authorProfileImageUrl'),
+                                channel_id=reply_snippet.get('authorChannelId', {}).get('value'),
+                                channel_url=reply_snippet.get('authorChannelUrl')
+                            )
+                            
+                            reply_metrics = CommentMetrics(
+                                like_count=reply_snippet.get('likeCount', 0)
+                            )
+                            
+                            reply = Comment(
+                                comment_id=reply_data['id'],
+                                text=reply_snippet.get('textDisplay', ''),
+                                author=reply_author,
+                                published_at=datetime.fromisoformat(reply_snippet['publishedAt'].replace('Z', '+00:00')),
+                                metrics=reply_metrics,
+                                parent_id=comment.comment_id,
+                                video_id=video_id
+                            )
+                            
+                            comment.add_reply(reply)
+                            total_replies += 1
+                    
+                    # Apply filters
+                    if self._apply_comment_filters(comment, filters):
+                        comments.append(comment)
+                        total_likes += comment.metrics.like_count
+                        
+                        # Track author statistics
+                        author_name = comment.author.display_name
+                        author_counts[author_name] = author_counts.get(author_name, 0) + 1
+                
+                except Exception as comment_error:
+                    print(f"Warning: Failed to process comment: {comment_error}")
+                    continue
+            
+            # Create analytics
+            analytics = CommentAnalytics(
+                total_comments=len(comments),
+                total_replies=total_replies,
+                total_likes=total_likes,
+                unique_authors=len(author_counts),
+                top_authors=[
+                    {'name': name, 'comment_count': count} 
+                    for name, count in sorted(author_counts.items(), key=lambda x: x[1], reverse=True)[:10]
+                ],
+                most_liked_comments=sorted(comments, key=lambda x: x.metrics.like_count, reverse=True)[:5],
+                most_replied_comments=sorted(comments, key=lambda x: x.metrics.total_reply_count, reverse=True)[:5]
+            )
+            
+            # Perform sentiment analysis if requested
+            if len(comments) > 0:
+                sentiment_scores = CommentSentimentAnalyzer.analyze_sentiment(
+                    ' '.join([comment.text for comment in comments[:50]])  # Analyze first 50 comments
+                )
+                analytics.sentiment_analysis = sentiment_scores
+            
+            # Create comprehensive result
+            result = CommentResult(
+                comments=comments,
+                total_results=response.get('pageInfo', {}).get('totalResults', len(comments)),
+                page_info=response.get('pageInfo', {}),
+                next_page_token=response.get('nextPageToken'),
+                prev_page_token=response.get('prevPageToken'),
+                filters_applied=filters,
+                analytics=analytics,
+                quota_cost=1
+            )
+            
+            return result.to_dict()
+            
+        except Exception as e:
+            print(f"Advanced comment fetch failed: {e}")
+            return {
+                'comments': [],
+                'total_results': 0,
+                'error': str(e),
+                'quota_cost': 1
+            }
+    
+    def _apply_comment_filters(self, comment: 'Comment', filters: 'CommentFilters') -> bool:
+        """Apply filters to a comment."""
+        # Date filtering
+        if filters.published_after and comment.published_at < filters.published_after:
+            return False
+        if filters.published_before and comment.published_at > filters.published_before:
+            return False
+        
+        # Engagement filtering
+        if filters.min_likes and comment.metrics.like_count < filters.min_likes:
+            return False
+        if filters.min_replies and comment.metrics.total_reply_count < filters.min_replies:
+            return False
+        
+        # Author filtering
+        if filters.author_channel_id and comment.author.channel_id != filters.author_channel_id:
+            return False
+        
+        # Search filtering
+        if filters.search_terms and filters.search_terms.lower() not in comment.text.lower():
+            return False
+        
+        return True
+    
+    def fetch_replies(self, comment_id: str, max_results: int = 100) -> List[Dict[str, Any]]:
+        """
+        Fetch replies to a specific comment.
+        
+        Args:
+            comment_id: YouTube comment ID
+            max_results: Maximum number of replies to retrieve
+            
+        Returns:
+            List of reply dictionaries
+        """
+        self._ensure_initialized()
+        
+        try:
+            reply_response = self._youtube.comments().list(
+                part='snippet',
+                parentId=comment_id,
+                maxResults=max_results,
+                textFormat='plainText'
+            ).execute()
+
+            replies = [
+                {
+                    'text': r['snippet']['textDisplay'],
+                    'likes': r['snippet']['likeCount'],
+                    'author': r['snippet']['authorDisplayName'], 
+                    'published': r['snippet']['publishedAt']
+                }
+                for r in reply_response.get('items', [])
+            ]
+            return sorted(replies, key=lambda x: x['likes'], reverse=True)
+            
+        except Exception as e:
+            print(f"Error fetching replies: {e}")
+            return []
+    
+    def process_url_comments(self, video_url: str, top_n: int = 3, 
+                           comment_max: int = 100, reply_max: int = 20, 
+                           order: str = 'relevance') -> List[Dict[str, Any]]:
+        """
+        Convenience method: Parse URL → Fetch Comments → Return Top N Threads
+        
+        Args:
+            video_url: YouTube video URL
+            top_n: Number of top comments to display
+            comment_max: Maximum comments to fetch
+            reply_max: Maximum replies per comment
+            order: Comment order
+            
+        Returns:
+            List of comment threads
+        """
+        threads = self.fetch_comments(
+            video_url,
+            max_results=comment_max,
+            reply_max_results=reply_max,
+            order=order
+        )
+        
+        self.display_threads(threads, limit=top_n)
+        
+        return threads
+    
+    def display_threads(self, threads: List[Dict[str, Any]], limit: Optional[int] = None) -> None:
+        """
+        Display comment threads in a readable format.
+        
+        Args:
+            threads: List of comment threads
+            limit: Maximum number of threads to display
+        """
+        display_items = threads if limit is None else threads[:limit]
+        
+        for i, thread in enumerate(display_items, 1):
+            print(f"\n{i}. 👍 {thread['likes']} | {thread['text'][:100]}... (by {thread['author']})")
+            
+            if thread['replies']:
+                for reply in thread['replies'][:3]:  # Show first 3 replies
+                    print(f"    ↳ 👍 {reply['likes']} | {reply['text'][:80]}... (by {reply['author']})")
+                
+                if len(thread['replies']) > 3:
+                    print(f"    ... and {len(thread['replies']) - 3} more replies")
+    
+    def test_connection(self, video_url: str) -> bool:
+        """
+        Test if YouTube API can connect and fetch basic data.
+        
+        Args:
+            video_url: YouTube video URL
+            
+        Returns:
+            True if connection successful, False otherwise
+        """
+        try:
+            self._ensure_initialized()
+            metadata = self.fetch_metadata(video_url)
+            return "error" not in metadata
+        except Exception:
+            return False

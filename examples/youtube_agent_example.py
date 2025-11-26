@@ -1,0 +1,353 @@
+#!/usr/bin/env python3
+"""
+YouTube Agent Quick Start Example
+
+This example demonstrates how to build a YouTube agent using the youtube-toolkit
+for caption retrieval, search, and content download.
+"""
+
+import os
+import sys
+from typing import Dict, Any, List
+from datetime import datetime
+
+# Add the package to path for development
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'youtube_toolkit'))
+
+from youtube_toolkit import YouTubeToolkit
+
+class SimpleYouTubeAgent:
+    """A simple YouTube agent demonstrating core capabilities."""
+    
+    def __init__(self, verbose: bool = True):
+        """Initialize the agent."""
+        self.toolkit = YouTubeToolkit(verbose=verbose)
+        self.verbose = verbose
+    
+    def analyze_video(self, url: str) -> Dict[str, Any]:
+        """Analyze a video comprehensively."""
+        if self.verbose:
+            print(f"\n🔍 Analyzing video: {url}")
+        
+        results = {
+            'url': url,
+            'timestamp': datetime.now().isoformat(),
+            'metadata': {},
+            'captions': {},
+            'similar_videos': [],
+            'analysis': {}
+        }
+        
+        try:
+            # 1. Get video metadata
+            if self.verbose:
+                print("📊 Extracting metadata...")
+            results['metadata'] = self._get_video_metadata(url)
+            
+            # 2. Get captions
+            if self.verbose:
+                print("📝 Retrieving captions...")
+            results['captions'] = self._get_captions(url)
+            
+            # 3. Search for similar videos
+            if self.verbose:
+                print("🔍 Searching for similar videos...")
+            results['similar_videos'] = self._search_similar_videos(url)
+            
+            # 4. Analyze content
+            if self.verbose:
+                print("🧠 Analyzing content...")
+            results['analysis'] = self._analyze_content(results)
+            
+            results['status'] = 'success'
+            
+        except Exception as e:
+            results['status'] = 'error'
+            results['error'] = str(e)
+            if self.verbose:
+                print(f"❌ Error: {e}")
+        
+        return results
+    
+    def _get_video_metadata(self, url: str) -> Dict[str, Any]:
+        """Get video metadata."""
+        try:
+            info = self.toolkit.get_video_info(url)
+            return {
+                'title': info.get('title', 'Unknown'),
+                'description': info.get('description', '')[:200] + '...' if len(info.get('description', '')) > 200 else info.get('description', ''),
+                'channel': info.get('channel_title', 'Unknown'),
+                'views': info.get('view_count', 0),
+                'likes': info.get('like_count', 0),
+                'duration': info.get('duration', 0),
+                'published': info.get('published_at', 'Unknown')
+            }
+        except Exception as e:
+            return {'error': str(e)}
+    
+    def _get_captions(self, url: str) -> Dict[str, Any]:
+        """Get video captions with analysis."""
+        try:
+            # List available captions
+            caption_list = self.toolkit.list_captions(url)
+            available_languages = [track['language'] for track in caption_list.get('tracks', [])]
+            
+            # Download English captions
+            result = self.toolkit.advanced_download_captions(
+                url, 
+                language_code='en', 
+                format='srt'
+            )
+            
+            if result['success']:
+                return {
+                    'status': 'success',
+                    'available_languages': available_languages,
+                    'downloaded_language': 'en',
+                    'file_path': result['output_path'],
+                    'analysis': result['analysis'],
+                    'word_count': result['analysis'].get('word_count', 0),
+                    'duration': result['analysis'].get('total_duration', 0),
+                    'cue_count': result['analysis'].get('cue_count', 0)
+                }
+            else:
+                return {
+                    'status': 'failed',
+                    'error': result.get('error', 'Unknown error'),
+                    'available_languages': available_languages
+                }
+                
+        except Exception as e:
+            return {'status': 'error', 'error': str(e)}
+    
+    def _search_similar_videos(self, url: str, max_results: int = 5) -> List[Dict[str, Any]]:
+        """Search for similar videos."""
+        try:
+            # Get video metadata to use for search
+            metadata = self._get_video_metadata(url)
+            title = metadata.get('title', '')
+            
+            if not title or title == 'Unknown':
+                return []
+            
+            # Search for similar content
+            results = self.toolkit.search_videos(title, max_results=max_results)
+            
+            # Format results
+            similar_videos = []
+            for video in results:
+                similar_videos.append({
+                    'title': video.get('title', 'Unknown'),
+                    'channel': video.get('channel_title', 'Unknown'),
+                    'views': video.get('view_count', 0),
+                    'duration': video.get('duration', 0),
+                    'url': video.get('url', ''),
+                    'published': video.get('published_at', 'Unknown')
+                })
+            
+            return similar_videos
+            
+        except Exception as e:
+            return []
+    
+    def _analyze_content(self, results: Dict[str, Any]) -> Dict[str, Any]:
+        """Analyze video content."""
+        analysis = {
+            'content_type': 'unknown',
+            'complexity_score': 5,
+            'engagement_level': 'medium',
+            'educational_value': 5,
+            'summary': 'Analysis not available'
+        }
+        
+        try:
+            metadata = results.get('metadata', {})
+            captions = results.get('captions', {})
+            
+            # Determine content type
+            title = metadata.get('title', '').lower()
+            if any(word in title for word in ['tutorial', 'how to', 'learn', 'course']):
+                analysis['content_type'] = 'educational'
+            elif any(word in title for word in ['review', 'comparison', 'vs']):
+                analysis['content_type'] = 'review'
+            elif any(word in title for word in ['news', 'update', 'breaking']):
+                analysis['content_type'] = 'news'
+            else:
+                analysis['content_type'] = 'entertainment'
+            
+            # Calculate complexity score
+            if captions.get('status') == 'success':
+                word_count = captions.get('word_count', 0)
+                duration = captions.get('duration', 0)
+                
+                if duration > 0:
+                    words_per_minute = word_count / (duration / 60)
+                    if words_per_minute > 200:
+                        analysis['complexity_score'] = 8
+                    elif words_per_minute > 150:
+                        analysis['complexity_score'] = 6
+                    else:
+                        analysis['complexity_score'] = 4
+            
+            # Assess engagement level
+            views = metadata.get('views', 0)
+            if views > 1000000:
+                analysis['engagement_level'] = 'high'
+            elif views > 100000:
+                analysis['engagement_level'] = 'medium'
+            else:
+                analysis['engagement_level'] = 'low'
+            
+            # Assess educational value
+            if analysis['content_type'] == 'educational':
+                analysis['educational_value'] = 8
+            elif analysis['content_type'] == 'review':
+                analysis['educational_value'] = 6
+            else:
+                analysis['educational_value'] = 4
+            
+            # Generate summary
+            analysis['summary'] = self._generate_summary(metadata, captions)
+            
+        except Exception as e:
+            analysis['error'] = str(e)
+        
+        return analysis
+    
+    def _generate_summary(self, metadata: Dict, captions: Dict) -> str:
+        """Generate a simple summary."""
+        title = metadata.get('title', 'Unknown')
+        channel = metadata.get('channel', 'Unknown')
+        views = metadata.get('views', 0)
+        word_count = captions.get('word_count', 0)
+        
+        summary = f"This video '{title}' by {channel} has {views:,} views"
+        
+        if word_count > 0:
+            summary += f" and contains {word_count} words of content"
+        
+        if captions.get('status') == 'success':
+            summary += ". Captions are available for analysis."
+        else:
+            summary += ". Captions are not available."
+        
+        return summary
+    
+    def download_content(self, url: str, content_type: str = 'audio', format: str = 'mp3') -> Dict[str, Any]:
+        """Download video or audio content."""
+        if self.verbose:
+            print(f"\n📥 Downloading {content_type} from: {url}")
+        
+        try:
+            if content_type == 'video':
+                result = self.toolkit.download_video(url, quality='best')
+            elif content_type == 'audio':
+                result = self.toolkit.download_audio(url, format=format)
+            else:
+                return {'status': 'error', 'error': 'Invalid content type. Use "video" or "audio"'}
+            
+            return {
+                'status': 'success',
+                'content_type': content_type,
+                'format': format,
+                'file_path': result.get('file_path', 'Unknown'),
+                'file_size': result.get('file_size', 'Unknown')
+            }
+            
+        except Exception as e:
+            return {'status': 'error', 'error': str(e)}
+    
+    def search_and_analyze(self, query: str, max_results: int = 10) -> Dict[str, Any]:
+        """Search for videos and analyze the top result."""
+        if self.verbose:
+            print(f"\n🔍 Searching for: {query}")
+        
+        try:
+            # Search for videos
+            results = self.toolkit.search_videos(query, max_results=max_results)
+            
+            if not results:
+                return {'status': 'error', 'error': 'No videos found'}
+            
+            # Analyze the first result
+            top_video = results[0]
+            video_url = top_video.get('url', '')
+            
+            if not video_url:
+                return {'status': 'error', 'error': 'No valid URL found'}
+            
+            # Analyze the video
+            analysis = self.analyze_video(video_url)
+            
+            return {
+                'status': 'success',
+                'query': query,
+                'search_results': len(results),
+                'top_video_analysis': analysis,
+                'all_results': results
+            }
+            
+        except Exception as e:
+            return {'status': 'error', 'error': str(e)}
+
+def main():
+    """Main function demonstrating the YouTube agent."""
+    print("🤖 YouTube Agent Example")
+    print("=" * 50)
+    
+    # Initialize agent
+    agent = SimpleYouTubeAgent(verbose=True)
+    
+    # Example 1: Analyze a specific video
+    print("\n📹 Example 1: Video Analysis")
+    print("-" * 30)
+    
+    video_url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+    analysis = agent.analyze_video(video_url)
+    
+    if analysis['status'] == 'success':
+        print(f"✅ Analysis completed successfully!")
+        print(f"Title: {analysis['metadata']['title']}")
+        print(f"Channel: {analysis['metadata']['channel']}")
+        print(f"Views: {analysis['metadata']['views']:,}")
+        print(f"Content Type: {analysis['analysis']['content_type']}")
+        print(f"Complexity Score: {analysis['analysis']['complexity_score']}/10")
+        print(f"Educational Value: {analysis['analysis']['educational_value']}/10")
+        
+        if analysis['captions']['status'] == 'success':
+            print(f"Captions: ✅ Available ({analysis['captions']['word_count']} words)")
+        else:
+            print(f"Captions: ❌ {analysis['captions'].get('error', 'Not available')}")
+    else:
+        print(f"❌ Analysis failed: {analysis.get('error', 'Unknown error')}")
+    
+    # Example 2: Search and analyze
+    print("\n🔍 Example 2: Search and Analyze")
+    print("-" * 30)
+    
+    search_query = "python programming tutorial"
+    search_result = agent.search_and_analyze(search_query, max_results=3)
+    
+    if search_result['status'] == 'success':
+        print(f"✅ Found {search_result['search_results']} videos for '{search_query}'")
+        top_analysis = search_result['top_video_analysis']
+        if top_analysis['status'] == 'success':
+            print(f"Top result: {top_analysis['metadata']['title']}")
+            print(f"Channel: {top_analysis['metadata']['channel']}")
+            print(f"Views: {top_analysis['metadata']['views']:,}")
+    else:
+        print(f"❌ Search failed: {search_result.get('error', 'Unknown error')}")
+    
+    # Example 3: Download content (commented out to avoid large downloads)
+    print("\n📥 Example 3: Content Download")
+    print("-" * 30)
+    print("💡 Download functionality is available but commented out to avoid large files")
+    print("   Uncomment the following lines to test downloads:")
+    print("   # download_result = agent.download_content(video_url, 'audio', 'mp3')")
+    print("   # print(f'Download: {download_result}')")
+    
+    print("\n🎉 YouTube Agent example completed!")
+    print("Check the generated files for detailed results.")
+
+if __name__ == "__main__":
+    main()

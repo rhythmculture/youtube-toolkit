@@ -1,0 +1,99 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "youtube-toolkit"
+version = "0.5.0"
+description = "A comprehensive YouTube information and download toolkit combining multiple packages with robust download fallbacks"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+keywords = ["youtube", "download", "metadata", "comments", "video", "audio"]
+authors = [
+    {name = "Bo-Yu Chen", email = "bernie40916@gmail.com"}
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Internet :: WWW/HTTP :: Dynamic Content",
+    "Topic :: Multimedia :: Sound/Audio",
+    "Topic :: Multimedia :: Video",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dependencies = [
+    "pytubefix>=8.0.0",
+    "yt-dlp>=2024.1.0",
+    "google-api-python-client>=2.108.0",
+    "google-auth-oauthlib>=1.1.0",
+    "google-auth-httplib2>=0.1.1",
+    "python-dotenv>=1.0.0",
+    "moviepy>=1.0.3",
+    "requests>=2.31.0",
+    "rich>=13.0.0",
+]
+
+[project.optional-dependencies]
+# Scraping backends for enhanced functionality (optional)
+scrapers = [
+    "scrapetube>=2.6.0",  # Unlimited channel videos, search fallback
+]
+# Development tools
+dev = [
+    "pytest>=6.0",
+    "pytest-cov>=2.0",
+    "black>=21.0",
+    "flake8>=3.8",
+    "mypy>=0.800",
+]
+# Documentation
+docs = [
+    "sphinx>=4.0",
+    "sphinx-rtd-theme>=1.0",
+]
+# All optional dependencies
+all = [
+    "youtube-toolkit[scrapers]",
+    "youtube-toolkit[dev]",
+    "youtube-toolkit[docs]",
+]
+
+[project.urls]
+Homepage = "https://github.com/rhythmculture/youtube-toolkit"
+Documentation = "https://github.com/rhythmculture/youtube-toolkit#readme"
+Repository = "https://github.com/rhythmculture/youtube-toolkit"
+Issues = "https://github.com/rhythmculture/youtube-toolkit/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["youtube_toolkit"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/youtube_toolkit",
+    "/README.md",
+    "/LICENSE",
+    "/pyproject.toml",
+]
+
+[tool.black]
+line-length = 88
+target-version = ['py310']
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.5",
+]
