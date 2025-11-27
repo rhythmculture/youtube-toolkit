@@ -1,63 +1,49 @@
 """
 YouTube Toolkit - A comprehensive YouTube information and download toolkit.
 
-Install with: uv add youtube-toolkit
+Install with: pip install youtube-toolkit
 Usage: from youtube_toolkit import YouTubeToolkit
 
-Features:
-- Extract video information from YouTube URLs
-- Download audio and video in various formats
-- Search YouTube videos with filters
-- Extract captions and transcripts
-- Fetch comments and rich metadata
-- Anti-detection measures for reliable downloads
-- Channel support: get all videos, shorts, streams (v0.3+)
-- Video chapters and engagement data (v0.3+)
-- Advanced search with native filters (v0.3+)
+Version 1.0.0 - Consolidated API with 5 Core Sub-APIs:
+    - GET: Retrieve information (video, channel, playlist, comments, chapters)
+    - DOWNLOAD: Save content to disk (audio, video, captions, thumbnails)
+    - SEARCH: Find content (videos, channels, playlists, trending)
+    - ANALYZE: Analyze content (metadata, engagement, sponsorblock)
+    - STREAM: Stream to buffer (audio, video, live streams)
 
-New Clean API (v0.1.0+):
+Quick Start:
+    from youtube_toolkit import YouTubeToolkit
+
     toolkit = YouTubeToolkit()
 
-    # Get video info as dataclass
-    video = toolkit.get_video(url)
-    print(video.title, video.duration)
+    # GET - Retrieve information
+    video = toolkit.get(url)
+    chapters = toolkit.get.chapters(url)
+    channel_videos = toolkit.get.channel.videos("@Fireship")
 
-    # Download with DownloadResult
+    # DOWNLOAD - Save to disk
     result = toolkit.download(url, type='audio', format='mp3')
-    if result.success:
-        print(result.file_path)
+    toolkit.download.video(url, quality='720p')
+    toolkit.download.with_sponsorblock(url)
 
-    # Search with SearchResult
-    results = toolkit.search('query', max_results=10)
-    for item in results.items:
-        print(item.title)
+    # SEARCH - Find content
+    results = toolkit.search("python tutorial")
+    trending = toolkit.search.trending()
 
-Channel Support (v0.3+):
-    # Get channel videos (uses pytubefix)
-    videos = toolkit.get_channel_videos("@Fireship", limit=50)
+    # ANALYZE - Analyze content
+    metadata = toolkit.analyze.metadata(url)
+    engagement = toolkit.analyze.engagement(url)
+    segments = toolkit.analyze.sponsorblock(url)
 
-    # Get ALL channel videos (requires: pip install youtube-toolkit[scrapers])
-    all_videos = toolkit.get_all_channel_videos("@Fireship")
-
-    # Get channel info
-    info = toolkit.get_channel_info("@Fireship")
-
-    # Get video chapters
-    chapters = toolkit.get_video_chapters(url)
-
-    # Advanced search with filters (no API quota)
-    results = toolkit.search_with_filters(
-        "python tutorial",
-        duration='medium',
-        upload_date='month',
-        sort_by='views'
-    )
+    # STREAM - Stream to buffer
+    audio_bytes = toolkit.stream.audio(url)
+    is_live = toolkit.stream.live.is_live(url)
 """
 
 from .api import YouTubeToolkit
 
 __all__ = ["YouTubeToolkit"]
-__version__ = "0.7.0"
+__version__ = "1.0.0"
 __author__ = "Bo-Yu Chen"
 __description__ = "A comprehensive YouTube information and download toolkit"
 

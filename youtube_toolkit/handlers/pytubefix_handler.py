@@ -681,7 +681,113 @@ class PyTubeFixHandler:
     def get_anti_detection_status(self) -> Dict[str, Any]:
         """Get anti-detection status for pytubefix."""
         return self.anti_detection.get_status() if self.anti_detection else {'status': 'disabled'}
-    
+
+    def stream_to_buffer(self, url: str, stream_type: str = 'audio',
+                         quality: str = 'best') -> bytes:
+        """
+        Stream video/audio content to a buffer (bytes) without saving to disk.
+
+        Args:
+            url: YouTube video URL
+            stream_type: 'audio' or 'video'
+            quality: For video: 'best', '1080p', '720p', '480p', '360p'
+                     For audio: 'best', '128k', '192k', '256k'
+
+        Returns:
+            Bytes containing the stream data
+        """
+        self._ensure_initialized()
+        import io
+
+        try:
+            yt = self._create_yt(url)
+
+            if stream_type == 'audio':
+                stream = yt.streams.get_audio_only()
+            else:
+                # Video stream
+                if quality == 'best':
+                    stream = yt.streams.get_highest_resolution()
+                else:
+                    # Try to get specific resolution
+                    resolution = quality if quality.endswith('p') else f"{quality}p"
+                    stream = yt.streams.filter(res=resolution, progressive=True).first()
+                    if not stream:
+                        stream = yt.streams.get_highest_resolution()
+
+            if not stream:
+                raise RuntimeError(f"No {stream_type} stream available")
+
+            # Stream to buffer
+            buffer = io.BytesIO()
+            stream.stream_to_buffer(buffer)
+            buffer.seek(0)
+            return buffer.read()
+
+        except Exception as e:
+            raise RuntimeError(f"Failed to stream to buffer: {e}")
+
+    def get_filesize_preview(self, url: str) -> Dict[str, Any]:
+        """
+        Get filesize preview for available streams without downloading.
+
+        Args:
+            url: YouTube video URL
+
+        Returns:
+            Dict with filesize info for best audio/video streams
+        """
+        self._ensure_initialized()
+
+        try:
+            yt = self._create_yt(url)
+            result = {}
+
+            # Best audio
+            audio_stream = yt.streams.get_audio_only()
+            if audio_stream:
+                filesize = audio_stream.filesize if hasattr(audio_stream, 'filesize') else 0
+                result['best_audio'] = {
+                    'filesize_bytes': filesize,
+                    'filesize_mb': round(filesize / (1024 * 1024), 2) if filesize else 0,
+                    'bitrate': getattr(audio_stream, 'abr', 'unknown'),
+                    'mime_type': getattr(audio_stream, 'mime_type', 'unknown'),
+                }
+
+            # Best video
+            video_stream = yt.streams.get_highest_resolution()
+            if video_stream:
+                filesize = video_stream.filesize if hasattr(video_stream, 'filesize') else 0
+                result['best_video'] = {
+                    'filesize_bytes': filesize,
+                    'filesize_mb': round(filesize / (1024 * 1024), 2) if filesize else 0,
+                    'resolution': getattr(video_stream, 'resolution', 'unknown'),
+                    'mime_type': getattr(video_stream, 'mime_type', 'unknown'),
+                }
+
+            return result
+
+        except Exception as e:
+            raise RuntimeError(f"Failed to get filesize preview: {e}")
+
+    def get_search_suggestions(self, query: str) -> List[str]:
+        """
+        Get search autocomplete suggestions for a query.
+
+        Args:
+            query: Partial search query
+
+        Returns:
+            List of suggested search terms
+        """
+        self._ensure_initialized()
+
+        try:
+            results = self.advanced_search(query, max_results=1)
+            return results.get('completion_suggestions', [])
+        except Exception:
+            return []
+
     def search_videos(self, query: str, filters: Optional[Dict] = None, max_results: int = 20) -> List[Dict[str, Any]]:
         """
         Search for YouTube videos using pytubefix search functionality.

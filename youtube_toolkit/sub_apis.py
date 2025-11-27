@@ -1,10 +1,12 @@
 """
 Sub-API classes for action-based API design.
 
-This module provides the three core action APIs:
+This module provides the five core action APIs (v1.0 consolidated):
 - GetAPI: Retrieve information (video, channel, playlist, etc.)
 - DownloadAPI: Save content to disk (audio, video, captions)
 - SearchAPI: Find content (videos, channels, playlists)
+- AnalyzeAPI: Analyze content (metadata, engagement, sponsorblock)
+- StreamAPI: Stream content to buffer and manage live streams
 
 Each sub-API is callable for smart defaults and has explicit methods for control.
 
@@ -488,6 +490,68 @@ class GetAPI:
         """
         return self._toolkit.get_rich_metadata(url)
 
+    def keywords(self, url: str) -> List[str]:
+        """
+        Get video keywords/tags.
+
+        Args:
+            url: Video URL
+
+        Returns:
+            List of keywords/tags
+        """
+        info = self._toolkit.pytubefix.get_video_info(url)
+        return info.get('keywords', []) or []
+
+    def formats(self, url: str) -> Dict[str, Any]:
+        """
+        Get available download formats for a video.
+
+        Args:
+            url: Video URL
+
+        Returns:
+            Dict with audio and video format options
+        """
+        return self._toolkit.pytubefix.get_available_formats(url)
+
+    def restriction(self, url: str) -> Dict[str, Any]:
+        """
+        Get video restriction/availability info.
+
+        Args:
+            url: Video URL
+
+        Returns:
+            Dict with age_restricted, is_private, is_unlisted, etc.
+        """
+        try:
+            info = self._toolkit.yt_dlp.get_full_metadata(url)
+            return {
+                'age_restricted': info.get('age_limit', 0) > 0,
+                'age_limit': info.get('age_limit', 0),
+                'is_private': info.get('is_private', False),
+                'is_unlisted': info.get('is_unlisted', False),
+                'availability': info.get('availability', 'public'),
+                'live_status': info.get('live_status'),
+                'playable_in_embed': info.get('playable_in_embed', True),
+            }
+        except Exception:
+            return {'age_restricted': False, 'availability': 'unknown'}
+
+    def embed_url(self, url: str) -> str:
+        """
+        Get embeddable URL for a video.
+
+        Args:
+            url: Video URL
+
+        Returns:
+            Embed URL string
+        """
+        video_id = self._toolkit.extract_video_id(url)
+        return f"https://www.youtube.com/embed/{video_id}"
+
 
 # =============================================================================
 # DOWNLOAD API - Save content to disk
@@ -742,6 +806,150 @@ class DownloadAPI:
             **kwargs
         )
 
+    def shorts(self, url: str,
+               output_path: Optional[str] = None,
+               format: str = 'mp4',
+               with_audio: bool = True) -> str:
+        """
+        Download a YouTube Short.
+
+        Args:
+            url: YouTube Shorts URL
+            output_path: Output directory
+            format: Output format ('mp4', 'webm')
+            with_audio: Include audio
+
+        Returns:
+            Path to downloaded file
+        """
+        return self._toolkit.yt_dlp.download_short(url, output_path, format, with_audio)
+
+    def live(self, url: str,
+             output_path: Optional[str] = None,
+             from_start: bool = False,
+             duration: Optional[int] = None) -> str:
+        """
+        Download a live stream.
+
+        Args:
+            url: YouTube live stream URL
+            output_path: Output directory
+            from_start: Download from beginning of stream
+            duration: Max duration in seconds
+
+        Returns:
+            Path to downloaded file
+        """
+        return self._toolkit.yt_dlp.download_live_stream(url, output_path, from_start, duration)
+
+    def with_sponsorblock(self, url: str,
+                          output_path: Optional[str] = None,
+                          action: str = 'remove',
+                          categories: Optional[List[str]] = None) -> str:
+        """
+        Download video with SponsorBlock segments handled.
+
+        Args:
+            url: YouTube video URL
+            output_path: Output directory
+            action: 'remove' (cut out), 'mark' (add as chapters)
+            categories: Categories to handle. Default: ['sponsor', 'selfpromo', 'intro', 'outro']
+
+        Returns:
+            Path to downloaded file
+        """
+        return self._toolkit.yt_dlp.download_with_sponsorblock(url, output_path, action, categories)
+
+    def with_metadata(self, url: str,
+                      output_path: Optional[str] = None,
+                      format: str = 'mp3',
+                      embed_thumbnail: bool = True,
+                      add_metadata: bool = True) -> str:
+        """
+        Download audio with embedded metadata and thumbnail.
+
+        Args:
+            url: YouTube video URL
+            output_path: Output directory
+            format: 'mp3', 'm4a', 'opus', 'flac'
+            embed_thumbnail: Embed cover art
+            add_metadata: Add ID3/metadata tags
+
+        Returns:
+            Path to audio file
+        """
+        return self._toolkit.yt_dlp.download_audio_with_metadata(
+            url, output_path, format, embed_thumbnail, add_metadata
+        )
+
+    def with_filter(self, url: str,
+                    output_path: Optional[str] = None,
+                    match_filter: Optional[str] = None,
+                    format: str = 'best') -> Optional[str]:
+        """
+        Download video only if it matches the filter criteria.
+
+        Filter expressions support:
+        - Comparison operators: <, <=, >, >=, =, !=
+        - Logical operators: & (and), | (or)
+        - Fields: duration, view_count, like_count, upload_date, uploader, title, etc.
+
+        Examples:
+            - "duration > 600" - Videos longer than 10 minutes
+            - "view_count > 10000" - Videos with more than 10k views
+
+        Args:
+            url: YouTube video URL or playlist URL
+            output_path: Output directory
+            match_filter: Filter expression string
+            format: Format specification
+
+        Returns:
+            Path to downloaded file, or None if filtered out
+        """
+        return self._toolkit.yt_dlp.download_with_filter(url, output_path, match_filter, format)
+
+    def with_archive(self, url: str,
+                     output_path: Optional[str] = None,
+                     archive_file: Optional[str] = None,
+                     format: str = 'best') -> Optional[str]:
+        """
+        Download with archive tracking (skip already downloaded).
+
+        Args:
+            url: YouTube video URL
+            output_path: Output directory
+            archive_file: Path to archive file
+            format: Format specification
+
+        Returns:
+            Path to file, or None if already in archive
+        """
+        return self._toolkit.yt_dlp.download_with_archive(url, output_path, archive_file, format)
+
+    def with_cookies(self, url: str,
+                     browser: str = 'chrome',
+                     output_path: Optional[str] = None,
+                     format: str = 'best') -> str:
+        """
+        Download using browser cookies for authentication.
+        Useful for age-restricted or member-only content.
+
+        Args:
+            url: YouTube video URL
+            browser: 'chrome', 'firefox', 'safari', 'edge', 'brave', etc.
+            output_path: Output directory
+            format: Format specification
+
+        Returns:
+            Path to downloaded file
+        """
+        # Extract cookies and use them for download
+        cookies_file = self._toolkit.yt_dlp.extract_cookies_from_browser(browser)
+        return self._toolkit.yt_dlp.download_video(
+            url, output_path=output_path, cookies=cookies_file
+        )
+
 
 # =============================================================================
 # SEARCH API - Find content
@@ -923,25 +1131,200 @@ class SearchAPI:
         Returns:
             List of suggested queries
         """
-        results = self._toolkit.pytubefix.advanced_search(query, max_results=1)
-        return results.get('completion_suggestions', [])
+        return self._toolkit.pytubefix.get_search_suggestions(query)
+
+    @property
+    def trending(self) -> 'TrendingSearchAPI':
+        """Access trending search functionality."""
+        if not hasattr(self, '_trending'):
+            self._trending = TrendingSearchAPI(self._toolkit)
+        return self._trending
+
+    def categories(self, region: str = 'US', language: str = 'en') -> List[Dict[str, Any]]:
+        """
+        Get video categories available in a region.
+
+        Args:
+            region: ISO 3166-1 alpha-2 country code (e.g., 'US', 'GB', 'JP')
+            language: Language for category names
+
+        Returns:
+            List of category dictionaries with id, title, assignable
+        """
+        return self._toolkit.youtube_api.get_video_categories(region, language)
+
+    def regions(self, display_language: str = 'en') -> List[Dict[str, Any]]:
+        """
+        Get list of regions/countries supported by YouTube.
+
+        Args:
+            display_language: Language for displaying names
+
+        Returns:
+            List of region dictionaries with code and name
+        """
+        return self._toolkit.youtube_api.get_supported_regions(display_language)
+
+    def languages(self, display_language: str = 'en') -> List[Dict[str, Any]]:
+        """
+        Get list of languages supported by YouTube.
+
+        Args:
+            display_language: Language for displaying names
+
+        Returns:
+            List of language dictionaries with code and name
+        """
+        return self._toolkit.youtube_api.get_supported_languages(display_language)
 
 
-# ==================== ADVANCED API (v0.5+) ====================
-
-class SponsorBlockAPI:
+class TrendingSearchAPI:
     """
-    SponsorBlock API - Get and handle sponsored segments.
+    Trending Videos API - Discover popular content.
 
     Usage:
-        segments = toolkit.sponsorblock.segments("url")
-        toolkit.sponsorblock.download("url", action='remove')
+        videos = toolkit.search.trending()
+        videos = toolkit.search.trending.by_category(region='US')
     """
 
     def __init__(self, toolkit: 'YouTubeToolkit'):
         self._toolkit = toolkit
 
-    def segments(self, url: str) -> List[Dict[str, Any]]:
+    def __call__(self, region: str = 'US', category: Optional[str] = None,
+                 max_results: int = 25) -> Dict[str, Any]:
+        """
+        Get trending/most popular videos in a region.
+
+        Args:
+            region: ISO 3166-1 alpha-2 country code
+            category: Filter by video category ID
+            max_results: Maximum results (max 50)
+
+        Returns:
+            Dictionary with trending videos
+        """
+        return self._toolkit.youtube_api.get_trending_videos(region, category, max_results)
+
+    def by_category(self, region: str = 'US',
+                    language: str = 'en') -> Dict[str, List[Dict[str, Any]]]:
+        """
+        Get trending videos organized by category.
+
+        Args:
+            region: ISO 3166-1 alpha-2 country code
+            language: Language for category names
+
+        Returns:
+            Dictionary mapping category names to trending videos
+        """
+        return self._toolkit.youtube_api.get_trending_by_category(region, language)
+
+
+# =============================================================================
+# ANALYZE API - Analyze content (NEW in v1.0)
+# =============================================================================
+
+class AnalyzeAPI:
+    """
+    ANALYZE API - Analyze YouTube content.
+
+    Usage:
+        toolkit.analyze(url)                    # Full metadata analysis
+        toolkit.analyze.metadata(url)           # Extended metadata
+        toolkit.analyze.engagement(url)         # Heatmap and key moments
+        toolkit.analyze.comments(url)           # Comment analytics
+        toolkit.analyze.captions(url)           # Caption analysis
+        toolkit.analyze.sponsorblock(url)       # SponsorBlock segments
+        toolkit.analyze.channel(channel)        # Channel analytics
+        toolkit.analyze.filesize(url)           # Filesize preview
+    """
+
+    def __init__(self, toolkit: 'YouTubeToolkit'):
+        self._toolkit = toolkit
+
+    def __call__(self, url: str) -> Dict[str, Any]:
+        """
+        Get comprehensive analysis of a video.
+
+        Args:
+            url: Video URL
+
+        Returns:
+            Dict with full metadata, engagement data, and more
+        """
+        return self.metadata(url)
+
+    def metadata(self, url: str) -> Dict[str, Any]:
+        """
+        Get comprehensive metadata (50+ fields).
+
+        Includes: channel info, engagement metrics, thumbnails, categories,
+        tags, live status, availability, format info, subtitles info, and more.
+
+        Args:
+            url: YouTube video URL
+
+        Returns:
+            Dictionary with comprehensive metadata
+        """
+        return self._toolkit.yt_dlp.get_full_metadata(url)
+
+    def engagement(self, url: str) -> Dict[str, Any]:
+        """
+        Get viewer engagement data (heatmap and key moments).
+
+        Args:
+            url: YouTube video URL
+
+        Returns:
+            Dict with heatmap and key_moments data
+        """
+        result = {}
+        try:
+            result['heatmap'] = self._toolkit.pytubefix.get_replayed_heatmap(url)
+        except Exception:
+            result['heatmap'] = []
+
+        try:
+            result['key_moments'] = self._toolkit.pytubefix.get_key_moments(url)
+        except Exception:
+            result['key_moments'] = []
+
+        return result
+
+    def comments(self, url: str, max_comments: int = 100,
+                 sort: str = 'relevance') -> Dict[str, Any]:
+        """
+        Get video comments with analytics.
+
+        Args:
+            url: YouTube video URL
+            max_comments: Maximum comments to retrieve
+            sort: 'relevance' or 'time'
+
+        Returns:
+            CommentResult with comments and analytics
+        """
+        from .core.comments import CommentFilters, CommentOrder
+
+        order = CommentOrder.RELEVANCE if sort == 'relevance' else CommentOrder.TIME
+        filters = CommentFilters(order=order, max_results=max_comments)
+
+        return self._toolkit.comments(url, filters=filters)
+
+    def captions(self, url: str) -> Dict[str, Any]:
+        """
+        Get caption/subtitle analysis.
+
+        Args:
+            url: YouTube video URL
+
+        Returns:
+            CaptionResult with available tracks and analytics
+        """
+        return self._toolkit.captions(url)
+
+    def sponsorblock(self, url: str) -> List[Dict[str, Any]]:
         """
         Get SponsorBlock segments for a video.
 
@@ -956,36 +1339,49 @@ class SponsorBlockAPI:
         Returns:
             List of segment dictionaries
         """
-        return self._toolkit.get_sponsorblock_segments(url)
+        return self._toolkit.yt_dlp.get_sponsorblock_segments(url)
 
-    def download(self, url: str, output_path: str = None,
-                 action: str = 'remove',
-                 categories: List[str] = None) -> str:
+    def channel(self, channel: str) -> Dict[str, Any]:
         """
-        Download video with SponsorBlock segments handled.
+        Get channel analytics and information.
+
+        Args:
+            channel: Channel URL, handle (@name), or ID
+
+        Returns:
+            Dict with channel statistics, branding, topics, etc.
+        """
+        # Try YouTube API first for comprehensive info
+        try:
+            # Extract channel ID if needed
+            if channel.startswith('@'):
+                return self._toolkit.youtube_api.get_channel_info(handle=channel)
+            elif channel.startswith('UC'):
+                return self._toolkit.youtube_api.get_channel_info(channel_id=channel)
+            else:
+                return self._toolkit.pytubefix.get_channel_info(channel)
+        except Exception:
+            return self._toolkit.pytubefix.get_channel_info(channel)
+
+    def filesize(self, url: str) -> Dict[str, Any]:
+        """
+        Get filesize preview for available streams without downloading.
 
         Args:
             url: YouTube video URL
-            output_path: Output directory
-            action: 'remove' (cut out), 'mark' (add as chapters)
-            categories: Categories to handle. Default: ['sponsor', 'selfpromo', 'intro', 'outro']
 
         Returns:
-            Path to downloaded file
+            Dict with filesize info for best audio/video streams
         """
-        return self._toolkit.download_with_sponsorblock(
-            url, output_path, action, categories
-        )
+        return self._toolkit.pytubefix.get_filesize_preview(url)
 
 
-class LiveStreamAPI:
-    """
-    Live Stream API - Download and manage live streams.
+# =============================================================================
+# STREAM API - Stream content (NEW in v1.0)
+# =============================================================================
 
-    Usage:
-        status = toolkit.live.status("url")
-        toolkit.live.download("url", from_start=True)
-    """
+class LiveStreamSubAPI:
+    """Sub-API for live stream operations."""
 
     def __init__(self, toolkit: 'YouTubeToolkit'):
         self._toolkit = toolkit
@@ -997,11 +1393,24 @@ class LiveStreamAPI:
         Returns:
             Dict with is_live, was_live, live_status, release_timestamp
         """
-        return self._toolkit.get_live_status(url)
+        return self._toolkit.yt_dlp.get_live_status(url)
 
-    def download(self, url: str, output_path: str = None,
+    def is_live(self, url: str) -> bool:
+        """
+        Check if a video is currently live.
+
+        Args:
+            url: YouTube video URL
+
+        Returns:
+            True if currently live streaming
+        """
+        status = self.status(url)
+        return status.get('is_live', False)
+
+    def download(self, url: str, output_path: Optional[str] = None,
                  from_start: bool = False,
-                 duration: int = None) -> str:
+                 duration: Optional[int] = None) -> str:
         """
         Download a live stream.
 
@@ -1014,909 +1423,63 @@ class LiveStreamAPI:
         Returns:
             Path to downloaded file
         """
-        return self._toolkit.download_live_stream(
-            url, output_path, from_start, duration
-        )
-
-    def is_live(self, url: str) -> bool:
-        """Check if URL is currently live."""
-        return self._toolkit.is_live(url)
+        return self._toolkit.yt_dlp.download_live_stream(url, output_path, from_start, duration)
 
 
-class ArchiveAPI:
+class StreamAPI:
     """
-    Archive API - Prevent re-downloads with archive tracking.
+    STREAM API - Stream YouTube content to buffer.
 
     Usage:
-        path = toolkit.archive.download("url")  # Skips if already downloaded
-        if toolkit.archive.contains("url"):
-            print("Already downloaded")
+        buffer = toolkit.stream(url)                    # Audio buffer (default)
+        buffer = toolkit.stream.audio(url)              # Audio buffer
+        buffer = toolkit.stream.video(url)              # Video buffer
+        status = toolkit.stream.live.status(url)        # Live stream status
+        is_live = toolkit.stream.live.is_live(url)      # Check if live
     """
 
-    def __init__(self, toolkit: 'YouTubeToolkit', archive_file: str = None):
+    def __init__(self, toolkit: 'YouTubeToolkit'):
         self._toolkit = toolkit
-        self._archive_file = archive_file
+        self.live = LiveStreamSubAPI(toolkit)
 
-    def download(self, url: str, output_path: str = None,
-                 format: str = 'best') -> Optional[str]:
+    def __call__(self, url: str, stream_type: str = 'audio',
+                 quality: str = 'best') -> bytes:
         """
-        Download with archive tracking.
+        Stream content to buffer.
 
         Args:
             url: YouTube video URL
-            output_path: Output directory
-            format: Format specification
+            stream_type: 'audio' or 'video'
+            quality: Stream quality
 
         Returns:
-            Path to file, or None if already in archive
+            Bytes containing the stream data
         """
-        return self._toolkit.download_with_archive(
-            url, output_path, self._archive_file, format
-        )
+        return self._toolkit.pytubefix.stream_to_buffer(url, stream_type, quality)
 
-    def contains(self, url: str) -> bool:
-        """Check if URL is in archive."""
-        if not self._archive_file:
-            return False
-        return self._toolkit.is_in_archive(url, self._archive_file)
-
-    def set_archive_file(self, path: str):
-        """Set the archive file path."""
-        self._archive_file = path
-
-
-class EngagementAPI:
-    """
-    Engagement API - Get viewer engagement data.
-
-    Usage:
-        heatmap = toolkit.engagement.heatmap("url")
-        comments = toolkit.engagement.comments("url", max_comments=50)
-    """
-
-    def __init__(self, toolkit: 'YouTubeToolkit'):
-        self._toolkit = toolkit
-
-    def heatmap(self, url: str) -> List[Dict[str, Any]]:
+    def audio(self, url: str, quality: str = 'best') -> bytes:
         """
-        Get viewer engagement heatmap (most replayed sections).
-
-        Returns list of segments with start_time, end_time, value (intensity 0-1).
+        Stream audio content to buffer.
 
         Args:
             url: YouTube video URL
+            quality: Audio quality ('best', '128k', '192k', '256k')
 
         Returns:
-            List of heatmap segments
+            Bytes containing the audio data
         """
-        return self._toolkit.get_heatmap(url)
+        return self._toolkit.pytubefix.stream_to_buffer(url, 'audio', quality)
 
-    def comments(self, url: str, max_comments: int = 100,
-                 sort: str = 'top') -> List[Dict[str, Any]]:
+    def video(self, url: str, quality: str = 'best') -> bytes:
         """
-        Get video comments with structured data.
+        Stream video content to buffer.
 
         Args:
             url: YouTube video URL
-            max_comments: Maximum comments to retrieve
-            sort: 'top' or 'new'
+            quality: Video quality ('best', '1080p', '720p', '480p', '360p')
 
         Returns:
-            List of comment dicts with author, text, likes, etc.
+            Bytes containing the video data
         """
-        return self._toolkit.get_comments_raw(url, max_comments, sort)
+        return self._toolkit.pytubefix.stream_to_buffer(url, 'video', quality)
 
-    def key_moments(self, url: str) -> List[Dict[str, Any]]:
-        """
-        Get AI-generated key moments.
-
-        Args:
-            url: YouTube video URL
-
-        Returns:
-            List of key moment dicts
-        """
-        return self._toolkit.get_key_moments(url)
-
-
-class CookiesAPI:
-    """
-    Cookies API - Use browser cookies for authentication.
-
-    Usage:
-        info = toolkit.cookies.get_video("url", browser='chrome')
-        toolkit.cookies.download_audio("url", browser='firefox')
-    """
-
-    def __init__(self, toolkit: 'YouTubeToolkit'):
-        self._toolkit = toolkit
-
-    def get_video(self, url: str, browser: str = 'chrome') -> Dict[str, Any]:
-        """
-        Get video info using browser cookies.
-        Useful for age-restricted or member-only content.
-
-        Args:
-            url: YouTube video URL
-            browser: 'chrome', 'firefox', 'safari', 'edge', 'brave', etc.
-
-        Returns:
-            Video info dictionary
-        """
-        return self._toolkit.get_video_info_with_cookies(url, browser)
-
-    def supported_browsers(self) -> List[str]:
-        """Get list of supported browsers."""
-        return self._toolkit.get_supported_browsers()
-
-
-class SubtitlesAPI:
-    """
-    Subtitles API - Download and convert subtitles.
-
-    Usage:
-        path = toolkit.subtitles.download("url", lang='en')
-        converted = toolkit.subtitles.convert("file.srt", to='vtt')
-    """
-
-    def __init__(self, toolkit: 'YouTubeToolkit'):
-        self._toolkit = toolkit
-
-    def download(self, url: str, lang: str = 'en',
-                 output_path: str = None) -> str:
-        """
-        Download subtitles.
-
-        Args:
-            url: YouTube video URL
-            lang: Language code
-            output_path: Output path
-
-        Returns:
-            Path to subtitle file
-        """
-        return self._toolkit.download_subtitles(url, lang, output_path)
-
-    def convert(self, input_path: str, to: str = 'srt') -> str:
-        """
-        Convert subtitle format.
-
-        Args:
-            input_path: Path to subtitle file
-            to: Output format ('srt', 'vtt', 'ass', 'json3', 'ttml')
-
-        Returns:
-            Path to converted file
-        """
-        return self._toolkit.convert_subtitles(input_path, to)
-
-    def supported_formats(self) -> List[str]:
-        """Get supported subtitle formats."""
-        return self._toolkit.get_supported_subtitle_formats()
-
-
-class ChapterAPI:
-    """
-    Chapter API - Get and split by chapters.
-
-    Usage:
-        chapters = toolkit.chapters.get("url")
-        files = toolkit.chapters.split("url", format='mp3')
-    """
-
-    def __init__(self, toolkit: 'YouTubeToolkit'):
-        self._toolkit = toolkit
-
-    def get(self, url: str) -> List[Dict[str, Any]]:
-        """
-        Get video chapters.
-
-        Returns list with title, start_time, end_time, duration, formatted times.
-
-        Args:
-            url: YouTube video URL
-
-        Returns:
-            List of chapter dicts
-        """
-        return self._toolkit.get_chapters(url)
-
-    def split(self, url: str, output_path: str = None,
-              format: str = 'mp4') -> List[str]:
-        """
-        Download and split video by chapters.
-
-        Args:
-            url: YouTube video URL
-            output_path: Output directory
-            format: Output format ('mp4', 'mp3', etc.)
-
-        Returns:
-            List of paths to split files
-        """
-        return self._toolkit.split_by_chapters(url, output_path, format)
-
-
-class ThumbnailAPI:
-    """
-    Thumbnail API - Download video thumbnails.
-
-    Usage:
-        path = toolkit.thumbnail.download("url")
-        path = toolkit.thumbnail.download("url", quality='maxres')
-    """
-
-    def __init__(self, toolkit: 'YouTubeToolkit'):
-        self._toolkit = toolkit
-
-    def download(self, url: str, output_path: str = None,
-                 quality: str = 'best') -> str:
-        """
-        Download video thumbnail.
-
-        Args:
-            url: YouTube video URL
-            output_path: Output directory
-            quality: 'best', 'maxres', 'standard', 'high', 'medium', 'default'
-
-        Returns:
-            Path to thumbnail file
-        """
-        return self._toolkit.download_thumbnail(url, output_path, quality)
-
-    def url(self, url: str, quality: str = 'maxres') -> str:
-        """
-        Get thumbnail URL without downloading.
-
-        Args:
-            url: YouTube video URL
-            quality: Thumbnail quality
-
-        Returns:
-            Thumbnail URL
-        """
-        return self._toolkit.get_thumbnail_url(url)
-
-
-class AudioEnhancedAPI:
-    """
-    Enhanced Audio API - Download with metadata and artwork.
-
-    Usage:
-        path = toolkit.audio_enhanced.download("url")  # With metadata + thumbnail
-        path = toolkit.audio_enhanced.download("url", embed_thumbnail=False)
-    """
-
-    def __init__(self, toolkit: 'YouTubeToolkit'):
-        self._toolkit = toolkit
-
-    def download(self, url: str, output_path: str = None,
-                 format: str = 'mp3',
-                 embed_thumbnail: bool = True,
-                 add_metadata: bool = True) -> str:
-        """
-        Download audio with embedded metadata and thumbnail.
-
-        Args:
-            url: YouTube video URL
-            output_path: Output directory
-            format: 'mp3', 'm4a', 'opus', 'flac'
-            embed_thumbnail: Embed cover art
-            add_metadata: Add ID3/metadata tags
-
-        Returns:
-            Path to audio file
-        """
-        return self._toolkit.download_audio_with_metadata(
-            url, output_path, format, embed_thumbnail, add_metadata
-        )
-
-
-# ==================== v0.6 Sub-APIs ====================
-
-class FilterAPI:
-    """
-    Filter API - Download with match filters.
-
-    Usage:
-        # Download only long videos
-        toolkit.filter.download(playlist_url, match_filter="duration > 600")
-
-        # Preview what would be downloaded
-        videos = toolkit.filter.preview(playlist_url, match_filter="view_count > 10000")
-
-        # Convenient filtering
-        videos = toolkit.filter.playlist(playlist_url, min_views=10000, min_duration=300)
-    """
-
-    def __init__(self, toolkit: 'YouTubeToolkit'):
-        self._toolkit = toolkit
-
-    def download(self, url: str, output_path: str = None,
-                 match_filter: str = None,
-                 format: str = 'best') -> Optional[str]:
-        """
-        Download video only if it matches the filter criteria.
-
-        Filter expressions support:
-        - Comparison operators: <, <=, >, >=, =, !=
-        - Logical operators: & (and), | (or)
-        - Fields: duration, view_count, like_count, upload_date, uploader, title, etc.
-
-        Examples:
-            - "duration > 600" - Videos longer than 10 minutes
-            - "view_count > 10000" - Videos with more than 10k views
-            - "duration > 300 & view_count > 1000" - Combined filter
-
-        Args:
-            url: YouTube video URL or playlist URL
-            output_path: Output directory
-            match_filter: Filter expression string
-            format: Format specification
-
-        Returns:
-            Path to downloaded file, or None if filtered out
-        """
-        return self._toolkit.download_with_filter(url, output_path, match_filter, format)
-
-    def preview(self, url: str, match_filter: str = None,
-                max_results: int = None) -> List[Dict[str, Any]]:
-        """
-        Preview videos matching filter criteria (without downloading).
-
-        Args:
-            url: YouTube video, playlist, or channel URL
-            match_filter: Filter expression string
-            max_results: Maximum number of results
-
-        Returns:
-            List of video info dictionaries that match the filter
-        """
-        return self._toolkit.get_videos_matching_filter(url, match_filter, max_results)
-
-    def playlist(self, playlist_url: str,
-                 match_filter: str = None,
-                 date_range: tuple = None,
-                 min_views: int = None,
-                 max_views: int = None,
-                 min_duration: int = None,
-                 max_duration: int = None,
-                 title_contains: str = None,
-                 title_not_contains: str = None) -> List[Dict[str, Any]]:
-        """
-        Filter playlist videos with convenient parameter options.
-
-        Args:
-            playlist_url: YouTube playlist URL
-            match_filter: Raw filter expression (if provided, other params are ignored)
-            date_range: Tuple of (start_date, end_date) in YYYYMMDD format
-            min_views: Minimum view count
-            max_views: Maximum view count
-            min_duration: Minimum duration in seconds
-            max_duration: Maximum duration in seconds
-            title_contains: Title must contain this string
-            title_not_contains: Title must NOT contain this string
-
-        Returns:
-            List of matching video info dictionaries
-        """
-        return self._toolkit.filter_playlist(
-            playlist_url, match_filter, date_range,
-            min_views, max_views, min_duration, max_duration,
-            title_contains, title_not_contains
-        )
-
-    def batch_download(self, url: str, output_path: str = None,
-                       match_filter: str = None,
-                       format: str = 'best',
-                       max_downloads: int = None,
-                       skip_existing: bool = True) -> List[str]:
-        """
-        Download multiple videos from playlist/channel with filter.
-
-        Args:
-            url: YouTube playlist or channel URL
-            output_path: Output directory
-            match_filter: Filter expression
-            format: Format specification
-            max_downloads: Maximum number of videos to download
-            skip_existing: Skip videos that already exist
-
-        Returns:
-            List of paths to downloaded files
-        """
-        return self._toolkit.batch_download_with_filter(
-            url, output_path, match_filter, format, max_downloads, skip_existing
-        )
-
-
-class MetadataAPI:
-    """
-    Metadata API - Export and manage video metadata.
-
-    Usage:
-        # Download with all metadata files
-        files = toolkit.metadata.download_with_files("url")
-
-        # Export metadata only (no video download)
-        path = toolkit.metadata.export("url", format='json')
-
-        # Get comprehensive metadata
-        data = toolkit.metadata.full("url")
-    """
-
-    def __init__(self, toolkit: 'YouTubeToolkit'):
-        self._toolkit = toolkit
-
-    def download_with_files(self, url: str, output_path: str = None,
-                            write_info_json: bool = True,
-                            write_description: bool = True,
-                            write_thumbnail: bool = True,
-                            write_subtitles: bool = False,
-                            subtitle_langs: List[str] = None,
-                            format: str = 'best') -> Dict[str, str]:
-        """
-        Download video with accompanying metadata files.
-
-        Creates separate files for metadata, description, thumbnail, and subtitles.
-
-        Args:
-            url: YouTube video URL
-            output_path: Output directory
-            write_info_json: Create .info.json file
-            write_description: Create .description file
-            write_thumbnail: Download thumbnail image
-            write_subtitles: Download subtitle files
-            subtitle_langs: Subtitle languages (default: ['en'])
-            format: Video format specification
-
-        Returns:
-            Dictionary mapping file types to their paths
-        """
-        return self._toolkit.download_with_metadata_files(
-            url, output_path, write_info_json, write_description,
-            write_thumbnail, write_subtitles, subtitle_langs, format
-        )
-
-    def export(self, url: str, output_path: str = None,
-               format: str = 'json') -> str:
-        """
-        Export video metadata without downloading the video.
-
-        Args:
-            url: YouTube video URL
-            output_path: Output file path or directory
-            format: Output format ('json', 'description', 'all')
-
-        Returns:
-            Path to the exported metadata file
-        """
-        return self._toolkit.export_metadata_only(url, output_path, format)
-
-    def full(self, url: str) -> Dict[str, Any]:
-        """
-        Get comprehensive metadata (50+ fields).
-
-        Includes: channel info, engagement metrics, thumbnails, categories,
-        tags, live status, availability, format info, subtitles info, and more.
-
-        Args:
-            url: YouTube video URL
-
-        Returns:
-            Dictionary with comprehensive metadata
-        """
-        return self._toolkit.get_full_metadata(url)
-
-
-class ShortsAPI:
-    """
-    YouTube Shorts API - Handle short-form vertical videos.
-
-    Usage:
-        # Check if URL is a Short
-        if toolkit.shorts.is_short("url"):
-            info = toolkit.shorts.info("url")
-
-        # Download a Short
-        path = toolkit.shorts.download("url")
-
-        # Get channel Shorts
-        shorts = toolkit.shorts.from_channel("@channel")
-    """
-
-    def __init__(self, toolkit: 'YouTubeToolkit'):
-        self._toolkit = toolkit
-
-    def is_short(self, url: str) -> bool:
-        """
-        Check if a URL is a YouTube Short.
-
-        Args:
-            url: YouTube URL
-
-        Returns:
-            True if URL is a Short
-        """
-        return self._toolkit.is_youtube_short(url)
-
-    def info(self, url: str) -> Dict[str, Any]:
-        """
-        Get information about a YouTube Short.
-
-        Args:
-            url: YouTube Shorts URL
-
-        Returns:
-            Dict with id, title, duration, is_short, view_count, etc.
-        """
-        return self._toolkit.get_shorts_info(url)
-
-    def download(self, url: str, output_path: str = None,
-                 format: str = 'mp4',
-                 with_audio: bool = True) -> str:
-        """
-        Download a YouTube Short.
-
-        Args:
-            url: YouTube Shorts URL
-            output_path: Output directory
-            format: Output format ('mp4', 'webm')
-            with_audio: Include audio
-
-        Returns:
-            Path to downloaded file
-        """
-        return self._toolkit.download_short(url, output_path, format, with_audio)
-
-    def from_channel(self, channel_url: str, max_results: int = 50) -> List[Dict[str, Any]]:
-        """
-        Get all Shorts from a YouTube channel.
-
-        Args:
-            channel_url: YouTube channel URL
-            max_results: Maximum number of Shorts to retrieve
-
-        Returns:
-            List of Shorts info dictionaries
-        """
-        return self._toolkit.get_channel_shorts(channel_url, max_results)
-
-    def batch_download(self, channel_url: str, output_path: str = None,
-                       max_downloads: int = 10,
-                       format: str = 'mp4') -> List[str]:
-        """
-        Download multiple Shorts from a channel.
-
-        Args:
-            channel_url: YouTube channel URL
-            output_path: Output directory
-            max_downloads: Maximum number of Shorts
-            format: Output format
-
-        Returns:
-            List of paths to downloaded files
-        """
-        return self._toolkit.batch_download_shorts(channel_url, output_path, max_downloads, format)
-
-
-# ==================== v0.7 Sub-APIs ====================
-
-class SubscriptionsAPI:
-    """
-    Subscriptions API - Channel subscription analytics.
-
-    Usage:
-        # Get channel's subscriptions
-        subs = toolkit.subscriptions.list("UC...")
-
-        # Check if subscribed to a channel
-        status = toolkit.subscriptions.check("UC...", "UCxxx")
-    """
-
-    def __init__(self, toolkit: 'YouTubeToolkit'):
-        self._toolkit = toolkit
-
-    def list(self, channel_id: str, max_results: int = 50,
-             order: str = 'relevance',
-             page_token: str = None) -> Dict[str, Any]:
-        """
-        Get subscriptions of a channel.
-
-        Args:
-            channel_id: YouTube channel ID
-            max_results: Maximum number of results (max 50)
-            order: Sort order ('alphabetical', 'relevance', 'unread')
-            page_token: Token for pagination
-
-        Returns:
-            Dictionary with subscriptions and pagination info
-        """
-        return self._toolkit.get_channel_subscriptions(channel_id, max_results, order, page_token)
-
-    def check(self, channel_id: str, target_channel_id: str) -> Dict[str, Any]:
-        """
-        Check if a channel is subscribed to another channel.
-
-        Args:
-            channel_id: The channel to check
-            target_channel_id: The channel to check if subscribed to
-
-        Returns:
-            Dictionary with is_subscribed and subscription details
-        """
-        return self._toolkit.check_subscription(channel_id, target_channel_id)
-
-
-class CategoriesAPI:
-    """
-    Video Categories API - Get available video categories.
-
-    Usage:
-        # Get categories for a region
-        categories = toolkit.categories.list(region='US')
-
-        # Get category by ID
-        category = toolkit.categories.get('10')  # Music category
-    """
-
-    def __init__(self, toolkit: 'YouTubeToolkit'):
-        self._toolkit = toolkit
-
-    def list(self, region: str = 'US', language: str = 'en') -> List[Dict[str, Any]]:
-        """
-        Get video categories available in a region.
-
-        Args:
-            region: ISO 3166-1 alpha-2 country code (e.g., 'US', 'GB', 'JP')
-            language: Language for category names
-
-        Returns:
-            List of category dictionaries with id, title, assignable
-        """
-        return self._toolkit.get_video_categories(region, language)
-
-    def get(self, category_id: str, language: str = 'en') -> Dict[str, Any]:
-        """
-        Get a specific category by ID.
-
-        Args:
-            category_id: Video category ID
-            language: Language for category name
-
-        Returns:
-            Category dictionary or None
-        """
-        return self._toolkit.get_category_by_id(category_id, language)
-
-
-class I18nAPI:
-    """
-    Internationalization API - Languages and regions.
-
-    Usage:
-        # Get supported languages
-        languages = toolkit.i18n.languages()
-
-        # Get supported regions
-        regions = toolkit.i18n.regions()
-    """
-
-    def __init__(self, toolkit: 'YouTubeToolkit'):
-        self._toolkit = toolkit
-
-    def languages(self, display_language: str = 'en') -> List[Dict[str, Any]]:
-        """
-        Get list of languages supported by YouTube.
-
-        Args:
-            display_language: Language for displaying names
-
-        Returns:
-            List of language dictionaries with code and name
-        """
-        return self._toolkit.get_supported_languages(display_language)
-
-    def regions(self, display_language: str = 'en') -> List[Dict[str, Any]]:
-        """
-        Get list of regions/countries supported by YouTube.
-
-        Args:
-            display_language: Language for displaying names
-
-        Returns:
-            List of region dictionaries with code and name
-        """
-        return self._toolkit.get_supported_regions(display_language)
-
-
-class ActivitiesAPI:
-    """
-    Channel Activities API - Track channel activity.
-
-    Usage:
-        # Get channel activity feed
-        activities = toolkit.activities.feed("UC...")
-
-        # Get recent uploads only
-        uploads = toolkit.activities.uploads("UC...")
-    """
-
-    def __init__(self, toolkit: 'YouTubeToolkit'):
-        self._toolkit = toolkit
-
-    def feed(self, channel_id: str, max_results: int = 25,
-             published_after: str = None,
-             published_before: str = None,
-             region_code: str = None,
-             page_token: str = None) -> Dict[str, Any]:
-        """
-        Get activity feed for a channel.
-
-        Activity types: upload, like, favorite, comment, subscription, etc.
-
-        Args:
-            channel_id: YouTube channel ID
-            max_results: Maximum results (max 50)
-            published_after: ISO 8601 datetime filter
-            published_before: ISO 8601 datetime filter
-            region_code: Filter by region
-            page_token: Pagination token
-
-        Returns:
-            Dictionary with activities and pagination info
-        """
-        return self._toolkit.get_channel_activities(
-            channel_id, max_results, published_after, published_before, region_code, page_token
-        )
-
-    def uploads(self, channel_id: str, max_results: int = 10) -> List[Dict[str, Any]]:
-        """
-        Get recent video uploads from a channel.
-
-        Args:
-            channel_id: YouTube channel ID
-            max_results: Maximum number of uploads
-
-        Returns:
-            List of recent upload dictionaries
-        """
-        return self._toolkit.get_recent_uploads(channel_id, max_results)
-
-
-class TrendingAPI:
-    """
-    Trending Videos API - Discover popular content.
-
-    Usage:
-        # Get trending videos
-        videos = toolkit.trending.videos(region='US')
-
-        # Get trending by category
-        by_category = toolkit.trending.by_category(region='US')
-
-        # Get trending music
-        music = toolkit.trending.videos(region='US', category='10')
-    """
-
-    def __init__(self, toolkit: 'YouTubeToolkit'):
-        self._toolkit = toolkit
-
-    def videos(self, region: str = 'US', category: str = None,
-               max_results: int = 25, page_token: str = None) -> Dict[str, Any]:
-        """
-        Get trending/most popular videos in a region.
-
-        Args:
-            region: ISO 3166-1 alpha-2 country code
-            category: Filter by video category ID
-            max_results: Maximum results (max 50)
-            page_token: Pagination token
-
-        Returns:
-            Dictionary with trending videos and pagination
-        """
-        return self._toolkit.get_trending_videos(region, category, max_results, page_token)
-
-    def by_category(self, region: str = 'US',
-                    language: str = 'en') -> Dict[str, List[Dict[str, Any]]]:
-        """
-        Get trending videos organized by category.
-
-        Args:
-            region: ISO 3166-1 alpha-2 country code
-            language: Language for category names
-
-        Returns:
-            Dictionary mapping category names to trending videos
-        """
-        return self._toolkit.get_trending_by_category(region, language)
-
-
-class ChannelSectionsAPI:
-    """
-    Channel Sections API - Channel layout and organization.
-
-    Usage:
-        # Get channel sections
-        sections = toolkit.sections.list("UC...")
-
-        # Get featured channels
-        featured = toolkit.sections.featured_channels("UC...")
-    """
-
-    def __init__(self, toolkit: 'YouTubeToolkit'):
-        self._toolkit = toolkit
-
-    def list(self, channel_id: str, language: str = None) -> List[Dict[str, Any]]:
-        """
-        Get channel sections (shelves).
-
-        Sections include: uploads, playlists, featured channels, etc.
-
-        Args:
-            channel_id: YouTube channel ID
-            language: Language for localized metadata
-
-        Returns:
-            List of channel section dictionaries
-        """
-        return self._toolkit.get_channel_sections(channel_id, language)
-
-    def featured_channels(self, channel_id: str) -> List[Dict[str, Any]]:
-        """
-        Get featured channels from a channel's sections.
-
-        Args:
-            channel_id: YouTube channel ID
-
-        Returns:
-            List of featured channel IDs
-        """
-        return self._toolkit.get_channel_featured_channels(channel_id)
-
-
-class ChannelInfoAPI:
-    """
-    Enhanced Channel Info API - Comprehensive channel data.
-
-    Usage:
-        # Get full channel info
-        info = toolkit.channel_info.get(channel_id="UC...")
-        info = toolkit.channel_info.get(handle="@MrBeast")
-
-        # Get multiple channels
-        channels = toolkit.channel_info.batch(["UC...", "UC..."])
-    """
-
-    def __init__(self, toolkit: 'YouTubeToolkit'):
-        self._toolkit = toolkit
-
-    def get(self, channel_id: str = None, username: str = None,
-            handle: str = None) -> Dict[str, Any]:
-        """
-        Get comprehensive channel information.
-
-        Provide ONE of: channel_id, username, or handle.
-
-        Args:
-            channel_id: YouTube channel ID (e.g., 'UC...')
-            username: Legacy YouTube username
-            handle: YouTube handle (e.g., '@MrBeast')
-
-        Returns:
-            Dictionary with statistics, branding, topics, playlists, status
-        """
-        return self._toolkit.get_channel_info_full(channel_id, username, handle)
-
-    def batch(self, channel_ids: List[str]) -> List[Dict[str, Any]]:
-        """
-        Get information for multiple channels at once.
-
-        Args:
-            channel_ids: List of YouTube channel IDs (max 50)
-
-        Returns:
-            List of channel info dictionaries
-        """
-        return self._toolkit.get_multiple_channels(channel_ids)

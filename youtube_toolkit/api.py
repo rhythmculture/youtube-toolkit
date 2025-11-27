@@ -27,28 +27,42 @@ class YouTubeToolkit:
     This class orchestrates different handlers to provide robust
     YouTube functionality with automatic fallback.
 
-    Action-Based API (v0.4+):
+    Consolidated API (v1.0) - Five Core Sub-APIs:
         toolkit = YouTubeToolkit()
 
         # GET - Retrieve information
         toolkit.get(url)                          # Smart auto-detect
         toolkit.get.video(url)                    # Video info
         toolkit.get.channel("@Fireship")          # Channel info
-        toolkit.get.channel.videos("@Fireship")   # Channel videos
         toolkit.get.chapters(url)                 # Video chapters
-        toolkit.get.transcript(url)               # Video transcript
+        toolkit.get.formats(url)                  # Available formats
+        toolkit.get.restriction(url)              # Age/region restrictions
 
         # DOWNLOAD - Save to disk
         toolkit.download(url)                     # Audio (default)
         toolkit.download.audio(url, format='mp3') # Explicit audio
         toolkit.download.video(url, quality='720p')
+        toolkit.download.shorts(url)              # Download Shorts
+        toolkit.download.live(url)                # Download live streams
+        toolkit.download.with_sponsorblock(url)   # Skip sponsors
 
         # SEARCH - Find content
         toolkit.search("query")                   # Videos (default)
         toolkit.search.videos("query")
-        toolkit.search.with_filters("query", duration='medium')
+        toolkit.search.trending()                 # Trending videos
+        toolkit.search.categories()               # Video categories
 
-    Legacy methods are still available for backward compatibility.
+        # ANALYZE - Analyze content (NEW)
+        toolkit.analyze(url)                      # Full metadata
+        toolkit.analyze.engagement(url)           # Heatmap + key moments
+        toolkit.analyze.sponsorblock(url)         # Sponsor segments
+        toolkit.analyze.filesize(url)             # Filesize preview
+
+        # STREAM - Stream to buffer (NEW)
+        toolkit.stream(url)                       # Audio buffer
+        toolkit.stream.audio(url)                 # Audio buffer
+        toolkit.stream.video(url)                 # Video buffer
+        toolkit.stream.live.status(url)           # Live stream status
     """
 
     def __init__(self, verbose: bool = False):
@@ -71,45 +85,13 @@ class YouTubeToolkit:
         # YouTube API doesn't need anti-detection (it's official)
         self.youtube_api = YouTubeAPIHandler()
 
-        # Initialize Action-Based Sub-APIs (v0.4+)
-        from .sub_apis import GetAPI, DownloadAPI, SearchAPI
+        # Initialize Core Sub-APIs (v1.0 Consolidated - 5 Core APIs)
+        from .sub_apis import GetAPI, DownloadAPI, SearchAPI, AnalyzeAPI, StreamAPI
         self.get = GetAPI(self)
         self.download = DownloadAPI(self)
         self.search = SearchAPI(self)
-
-        # Initialize Advanced Sub-APIs (v0.5+)
-        from .sub_apis import (
-            SponsorBlockAPI, LiveStreamAPI, ArchiveAPI, EngagementAPI,
-            CookiesAPI, SubtitlesAPI, ChapterAPI, ThumbnailAPI, AudioEnhancedAPI
-        )
-        self.sponsorblock = SponsorBlockAPI(self)
-        self.live = LiveStreamAPI(self)
-        self.archive = ArchiveAPI(self)
-        self.engagement = EngagementAPI(self)
-        self.cookies = CookiesAPI(self)
-        self.subtitles = SubtitlesAPI(self)
-        self.chapters = ChapterAPI(self)
-        self.thumbnail = ThumbnailAPI(self)
-        self.audio_enhanced = AudioEnhancedAPI(self)
-
-        # Initialize v0.6 Sub-APIs
-        from .sub_apis import FilterAPI, MetadataAPI, ShortsAPI
-        self.filter = FilterAPI(self)
-        self.metadata = MetadataAPI(self)
-        self.shorts = ShortsAPI(self)
-
-        # Initialize v0.7 Sub-APIs (YouTube API Analytics)
-        from .sub_apis import (
-            SubscriptionsAPI, CategoriesAPI, I18nAPI, ActivitiesAPI,
-            TrendingAPI, ChannelSectionsAPI, ChannelInfoAPI
-        )
-        self.subscriptions = SubscriptionsAPI(self)
-        self.categories = CategoriesAPI(self)
-        self.i18n = I18nAPI(self)
-        self.activities = ActivitiesAPI(self)
-        self.trending = TrendingAPI(self)
-        self.sections = ChannelSectionsAPI(self)
-        self.channel_info = ChannelInfoAPI(self)
+        self.analyze = AnalyzeAPI(self)
+        self.stream = StreamAPI(self)
     
     def get_video_info(self, url: str) -> Dict[str, Any]:
         """

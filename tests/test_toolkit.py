@@ -18,7 +18,7 @@ class TestYouTubeToolkitImport:
     def test_import_version(self):
         """Test that version is accessible."""
         from youtube_toolkit import __version__
-        assert __version__ == "0.7.0"
+        assert __version__ == "1.0.0"
 
     def test_import_core_classes(self):
         """Test that core classes can be imported."""
