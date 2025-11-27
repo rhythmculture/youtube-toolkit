@@ -222,12 +222,14 @@ def get_video_info(self, url: str) -> Dict:
 
 ### Return Types
 
-Different APIs return different types:
+All main APIs return dataclasses for consistent attribute access:
 
 ```python
-# GET API returns dictionaries
+# GET API returns VideoInfo dataclass
 video = toolkit.get(url)
-print(video['title'])        # Dict access
+print(video.title)           # Attribute access
+print(video.duration)
+print(video.views)
 
 # DOWNLOAD API returns DownloadResult dataclass
 result = toolkit.download(url)
@@ -238,11 +240,28 @@ print(result.success)
 results = toolkit.search("query")
 for item in results.items:   # items is a list of SearchResultItem
     print(item.title)        # Attribute access
+
+# Note: Some sub-methods return dicts (channel videos, playlist videos)
+videos = toolkit.get.channel.videos("@Channel")
+for v in videos:             # List of dicts
+    print(v['title'])
 ```
 
 ### Core Data Classes
 
 ```python
+@dataclass
+class VideoInfo:
+    title: str
+    duration: int
+    views: int
+    author: str
+    video_id: str
+    url: str
+    description: Optional[str] = None
+    thumbnail: Optional[str] = None
+    # ... more fields
+
 @dataclass
 class DownloadResult:
     success: bool

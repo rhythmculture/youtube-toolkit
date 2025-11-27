@@ -2,29 +2,36 @@
 Core VideoInfo dataclass for standardized video information.
 """
 
-from dataclasses import dataclass
-from typing import Optional
+from dataclasses import dataclass, field
+from typing import Optional, List, Dict, Any
 
 
 @dataclass
 class VideoInfo:
     """Standardized video information structure."""
-    
+
     title: str
     duration: int
     views: int
     author: str
     video_id: str
     url: str
-    
+
     # Optional fields for additional metadata
     description: Optional[str] = None
     thumbnail: Optional[str] = None
     category: Optional[str] = None
-    tags: Optional[list[str]] = None
+    tags: Optional[List[str]] = None
     published_date: Optional[str] = None
     like_count: Optional[int] = None
     comment_count: Optional[int] = None
+
+    # Optional extras (populated when include= is used)
+    chapters: Optional[List[Dict[str, Any]]] = None
+    heatmap: Optional[List[Dict[str, Any]]] = None
+    key_moments: Optional[List[Dict[str, Any]]] = None
+    transcript: Optional[str] = None
+    lyrics: Optional[str] = None
     
     def __post_init__(self):
         """Validate and clean data after initialization."""
@@ -46,7 +53,7 @@ class VideoInfo:
     
     def to_dict(self) -> dict:
         """Convert to dictionary for easy serialization."""
-        return {
+        result = {
             'title': self.title,
             'duration': self.duration,
             'views': self.views,
@@ -59,8 +66,20 @@ class VideoInfo:
             'tags': self.tags,
             'published_date': self.published_date,
             'like_count': self.like_count,
-            'comment_count': self.comment_count
+            'comment_count': self.comment_count,
         }
+        # Include extras if present
+        if self.chapters is not None:
+            result['chapters'] = self.chapters
+        if self.heatmap is not None:
+            result['heatmap'] = self.heatmap
+        if self.key_moments is not None:
+            result['key_moments'] = self.key_moments
+        if self.transcript is not None:
+            result['transcript'] = self.transcript
+        if self.lyrics is not None:
+            result['lyrics'] = self.lyrics
+        return result
     
     @classmethod
     def from_dict(cls, data: dict) -> 'VideoInfo':

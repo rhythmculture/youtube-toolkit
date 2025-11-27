@@ -72,7 +72,7 @@ url = "https://youtube.com/watch?v=dQw4w9WgXcQ"
 
 # Get video info
 video = toolkit.get(url)
-print(f"{video['title']} - {video['duration']}s")
+print(f"{video.title} - {video.duration}s")
 
 # Download audio
 result = toolkit.download(url, type='audio', format='mp3')

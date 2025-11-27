@@ -19,6 +19,8 @@ from typing import Optional, List, Dict, Any, Union, TYPE_CHECKING
 import os
 import time
 
+from .core.video_info import VideoInfo
+
 if TYPE_CHECKING:
     from .api import YouTubeToolkit
 
@@ -331,7 +333,7 @@ class GetAPI:
         self.comments = CommentsGetAPI(self)
 
     def __call__(self, url: str,
-                 include: Optional[List[str]] = None) -> Dict[str, Any]:
+                 include: Optional[List[str]] = None) -> Union[VideoInfo, Dict[str, Any]]:
         """
         Smart get - auto-detect URL type and return appropriate info.
 
@@ -341,7 +343,7 @@ class GetAPI:
                      ['chapters', 'heatmap', 'key_moments', 'transcript']
 
         Returns:
-            VideoInfo, ChannelInfo, or PlaylistInfo depending on URL type
+            VideoInfo for videos, dict for channels/playlists
         """
         # Detect URL type
         url_lower = url.lower()
@@ -356,7 +358,7 @@ class GetAPI:
             return self.video(url, include=include)
 
     def video(self, url: str,
-              include: Optional[List[str]] = None) -> Dict[str, Any]:
+              include: Optional[List[str]] = None) -> VideoInfo:
         """
         Get video information.
 
@@ -366,44 +368,58 @@ class GetAPI:
                      ['chapters', 'heatmap', 'key_moments', 'transcript', 'lyrics']
 
         Returns:
-            Video info dict with requested extras
+            VideoInfo dataclass with video details
         """
-        # Get base info
+        # Get base info from handler
         info = self._toolkit.pytubefix.get_video_info(url)
 
-        # Add extras if requested
+        # Map handler dict keys to VideoInfo fields
+        video_info = VideoInfo(
+            title=info.get('title', ''),
+            duration=info.get('duration', 0),
+            views=info.get('view_count', 0),
+            author=info.get('channel', ''),
+            video_id=info.get('video_id', ''),
+            url=info.get('video_url', url),
+            description=info.get('description'),
+            thumbnail=info.get('thumbnail_url'),
+            published_date=info.get('upload_date'),
+            like_count=info.get('like_count'),
+        )
+
+        # Add extras if requested (stored as additional attributes)
         if include:
             if 'chapters' in include:
                 try:
-                    info['chapters'] = self._toolkit.pytubefix.get_video_chapters(url)
+                    video_info.chapters = self._toolkit.pytubefix.get_video_chapters(url)
                 except Exception:
-                    info['chapters'] = []
+                    video_info.chapters = []
 
             if 'heatmap' in include:
                 try:
-                    info['heatmap'] = self._toolkit.pytubefix.get_replayed_heatmap(url)
+                    video_info.heatmap = self._toolkit.pytubefix.get_replayed_heatmap(url)
                 except Exception:
-                    info['heatmap'] = []
+                    video_info.heatmap = []
 
             if 'key_moments' in include:
                 try:
-                    info['key_moments'] = self._toolkit.pytubefix.get_key_moments(url)
+                    video_info.key_moments = self._toolkit.pytubefix.get_key_moments(url)
                 except Exception:
-                    info['key_moments'] = []
+                    video_info.key_moments = []
 
             if 'transcript' in include:
                 try:
-                    info['transcript'] = self._toolkit.ytdlp.get_transcript(url)
+                    video_info.transcript = self._toolkit.ytdlp.get_transcript(url)
                 except Exception:
-                    info['transcript'] = None
+                    video_info.transcript = None
 
             if 'lyrics' in include:
                 try:
-                    info['lyrics'] = self._toolkit.ytdlp.get_lyrics(url)
+                    video_info.lyrics = self._toolkit.ytdlp.get_lyrics(url)
                 except Exception:
-                    info['lyrics'] = None
+                    video_info.lyrics = None
 
-        return info
+        return video_info
 
     def chapters(self, url: str) -> List[Dict[str, Any]]:
         """

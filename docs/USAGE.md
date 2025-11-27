@@ -31,8 +31,8 @@ toolkit = YouTubeToolkit()
 
 # Get video information
 video = toolkit.get("https://youtube.com/watch?v=dQw4w9WgXcQ")
-print(f"Title: {video['title']}")
-print(f"Duration: {video['duration']} seconds")
+print(f"Title: {video.title}")
+print(f"Duration: {video.duration} seconds")
 
 # Download audio
 result = toolkit.download("https://youtube.com/watch?v=dQw4w9WgXcQ", type='audio', format='mp3')
@@ -55,7 +55,7 @@ Use `toolkit.get` to retrieve information without downloading.
 
 ```python
 # Video information
-video = toolkit.get(url)                    # Returns dict with video info
+video = toolkit.get(url)                    # Returns VideoInfo dataclass
 video = toolkit.get.video(url)              # Same as above
 
 # Video details
@@ -210,8 +210,8 @@ videos = toolkit.get.channel.videos("@Fireship", limit=50)
 # Get ALL videos (uses scrapetube for unlimited results)
 all_videos = toolkit.get.channel.videos("@Fireship", use_scrapetube=True)
 
-for video in videos:
-    print(f"{video['title']} - {video['views']} views")
+for video in videos:  # Channel videos are dicts
+    print(f"{video['title']} - {video['view_count']} views")
 ```
 
 ### Download Video Without Sponsor Segments
