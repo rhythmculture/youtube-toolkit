@@ -4,13 +4,35 @@ This handler implements rich metadata extraction using the official YouTube Data
 """
 
 import os
+from pathlib import Path
 from typing import Dict, List, Optional, Any
 from datetime import datetime
 from dotenv import load_dotenv
 
 
-# Load environment variables
-load_dotenv()
+def _load_env_files():
+    """Load .env files from multiple locations."""
+    # Try to load from current working directory
+    load_dotenv()
+
+    # Also try common locations if API key not found yet
+    if not os.getenv("YOUTUBE_API_KEY"):
+        # Try home directory
+        home_env = Path.home() / ".env"
+        if home_env.exists():
+            load_dotenv(home_env)
+
+        # Try project root (look for .env in parent directories)
+        current = Path.cwd()
+        for parent in [current] + list(current.parents)[:3]:  # Check up to 3 levels
+            env_file = parent / ".env"
+            if env_file.exists():
+                load_dotenv(env_file)
+                break
+
+
+# Load environment variables from .env files
+_load_env_files()
 
 
 class YouTubeAPIHandler:
