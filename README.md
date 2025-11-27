@@ -68,14 +68,15 @@ Get an API key from [Google Cloud Console](https://console.cloud.google.com/) â†
 from youtube_toolkit import YouTubeToolkit
 
 toolkit = YouTubeToolkit()
+url = "https://youtube.com/watch?v=dQw4w9WgXcQ"
 
 # Get video info
-video = toolkit.get("https://youtube.com/watch?v=dQw4w9WgXcQ")
+video = toolkit.get(url)
 print(f"{video['title']} - {video['duration']}s")
 
 # Download audio
 result = toolkit.download(url, type='audio', format='mp3')
-print(f"Downloaded: {result['file_path']}")
+print(f"Downloaded: {result.file_path}")
 
 # Search
 results = toolkit.search("python tutorial", max_results=5)

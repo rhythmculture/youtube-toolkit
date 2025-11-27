@@ -36,8 +36,8 @@ print(f"Duration: {video['duration']} seconds")
 
 # Download audio
 result = toolkit.download("https://youtube.com/watch?v=dQw4w9WgXcQ", type='audio', format='mp3')
-if result['success']:
-    print(f"Downloaded to: {result['file_path']}")
+if result.success:
+    print(f"Downloaded to: {result.file_path}")
 
 # Search for videos
 results = toolkit.search("python tutorial", max_results=5)
@@ -254,13 +254,13 @@ from youtube_toolkit import YouTubeToolkit
 
 toolkit = YouTubeToolkit()
 
-# Using download result
+# Using DownloadResult
 result = toolkit.download(url, type='audio')
-if result['success']:
-    print(f"Downloaded: {result['file_path']}")
-    print(f"Size: {result.get('file_size_mb', 'N/A')} MB")
+if result.success:
+    print(f"Downloaded: {result.file_path}")
+    print(f"Size: {result.file_size_mb} MB")
 else:
-    print(f"Error: {result.get('error_message', 'Unknown error')}")
+    print(f"Error: {result.error_message}")
 
 # Using try/except for sub-API methods
 try:
