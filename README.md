@@ -71,16 +71,16 @@ toolkit = YouTubeToolkit()
 
 # Get video info
 video = toolkit.get("https://youtube.com/watch?v=dQw4w9WgXcQ")
-print(f"{video.title} - {video.duration}s")
+print(f"{video['title']} - {video['duration']}s")
 
 # Download audio
 result = toolkit.download(url, type='audio', format='mp3')
-print(f"Downloaded: {result.file_path}")
+print(f"Downloaded: {result['file_path']}")
 
 # Search
 results = toolkit.search("python tutorial", max_results=5)
-for item in results.items:
-    print(f"- {item.title}")
+for item in results:
+    print(f"- {item['title']}")
 ```
 
 ## The 5 Core APIs
