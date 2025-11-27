@@ -39,13 +39,10 @@ dependencies = [
     "moviepy>=1.0.3",
     "requests>=2.31.0",
     "rich>=13.0.0",
+    "scrapetube>=2.6.0",
 ]
 
 [project.optional-dependencies]
-# Scraping backends for enhanced functionality (optional)
-scrapers = [
-    "scrapetube>=2.6.0",  # Unlimited channel videos, search fallback
-]
 # Development tools
 dev = [
     "pytest>=6.0",

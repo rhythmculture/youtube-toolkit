@@ -197,12 +197,7 @@ youtube-toolkit is built on top of excellent open-source projects:
 | [**requests**](https://github.com/psf/requests) | HTTP requests for thumbnails and API calls | Apache 2.0 |
 | [**rich**](https://github.com/Textualize/rich) | Beautiful terminal output and progress bars | MIT |
 | [**python-dotenv**](https://github.com/theskumar/python-dotenv) | Environment variable management | BSD |
-
-### Optional Dependencies
-
-| Package | Purpose | Install |
-|---------|---------|---------|
-| [**scrapetube**](https://github.com/dermasmid/scrapetube) | Unlimited channel videos without API limits | `pip install youtube-toolkit[scrapers]` |
+| [**scrapetube**](https://github.com/dermasmid/scrapetube) | Unlimited channel videos without API limits | MIT |
 
 ### Special Thanks
 
