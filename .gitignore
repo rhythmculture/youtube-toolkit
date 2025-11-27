@@ -75,3 +75,6 @@ htmlcov/
 
 # mypy
 .mypy_cache/
+
+# Claude Code
+CLAUDE.md

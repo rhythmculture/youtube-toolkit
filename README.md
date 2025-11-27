@@ -1,369 +1,257 @@
 # YouTube Toolkit
 
-A robust Python toolkit for downloading YouTube content with automatic fallback between multiple backends. Built for reliability and ease of use.
+A robust Python toolkit for YouTube operations with automatic fallback between multiple backends. Built for reliability and ease of use.
 
-## What This Package Does
+## Why YouTube Toolkit?
 
-YouTube Toolkit automatically handles YouTube operations by trying multiple methods in sequence:
-- **PyTubeFix** - Fast and reliable primary method
-- **YT-DLP** - Robust fallback with advanced features
-- **YouTube API** - Official API for metadata and search
+YouTube libraries break frequently. youtube-toolkit solves this by using **multiple backends** with **automatic fallback**:
 
-If one method fails, it automatically tries the next one, ensuring your operations succeed.
+- If PyTubeFix fails → tries yt-dlp
+- If yt-dlp fails → tries YouTube API
+- You get consistent results regardless of which backend succeeds
 
-## Key Features
+## Features
 
-- **5 Core APIs** - Get, Download, Search, Analyze, Stream
-- **Audio Download** - Download audio in WAV, MP3, or M4A formats
-- **Video Download** - Download videos in various qualities (720p, 1080p, etc.)
-- **Video Information** - Get video details, duration, views, etc.
-- **Search Videos** - Search YouTube with filters and trending
-- **Analyze Content** - SponsorBlock segments, engagement heatmaps, metadata
-- **Stream to Buffer** - Stream audio/video to memory without saving to disk
-- **Live Streams** - Check status and download live streams
-- **Automatic Fallback** - If one method fails, tries another automatically
+- **5 Intuitive APIs** - Get, Download, Search, Analyze, Stream
+- **Automatic Fallback** - Multiple backends ensure reliability
+- **Type Safety** - Data classes with IDE autocomplete support
+- **No API Key Required** - Most features work without YouTube API key
+- **Comprehensive** - Videos, playlists, channels, shorts, live streams
 
 ## Installation
 
 ### Prerequisites
 
-**Python 3.10+** is required.
+**Python 3.10+** and **FFmpeg** are required.
 
 ```bash
-# Install FFmpeg (required for audio conversion)
+# Install FFmpeg
 # Ubuntu/Debian
 sudo apt update && sudo apt install ffmpeg
 
 # macOS
 brew install ffmpeg
 
-# Windows
-# Download from https://ffmpeg.org/download.html
+# Windows - Download from https://ffmpeg.org/download.html
 ```
 
 ### Install the Package
 
 ```bash
-# Install directly from GitHub with uv (recommended)
+# With uv (recommended)
 uv pip install git+https://github.com/rhythmculture/youtube-toolkit.git
 
-# Or install a specific version
-uv pip install git+https://github.com/rhythmculture/youtube-toolkit.git@v1.0.0
-
-# Or with pip
+# With pip
 pip install git+https://github.com/rhythmculture/youtube-toolkit.git
+
+# Specific version
+uv pip install git+https://github.com/rhythmculture/youtube-toolkit.git@v1.0.0
 ```
 
-### YouTube API Setup (Required for some features)
+### YouTube API Key (Optional)
 
-Some features require a YouTube API key (trending, categories, regions, languages, comments via API).
-
-1. Go to [Google Cloud Console](https://console.cloud.google.com/)
-2. Create a new project or select an existing one
-3. Enable the **YouTube Data API v3**
-4. Go to **Credentials** → **Create Credentials** → **API Key**
-5. Copy the API key and set it as an environment variable:
+Most features work without an API key. Only needed for: `search.trending()`, `search.categories()`, `search.regions()`, `search.languages()`, and API-based comments.
 
 ```bash
-# Option 1: Create a .env file in your project directory
-echo "YOUTUBE_API_KEY=your_api_key_here" > .env
+# Set your API key
+echo "YOUTUBE_API_KEY=your_key_here" > .env
 
-# Option 2: Export directly (Linux/macOS)
-export YOUTUBE_API_KEY=your_api_key_here
-
-# Option 3: Set in Windows
-set YOUTUBE_API_KEY=your_api_key_here
+# Or export directly
+export YOUTUBE_API_KEY=your_key_here
 ```
 
-**Note**: Most features work without an API key. The API key is only needed for:
-- `search.trending()`, `search.categories()`, `search.regions()`, `search.languages()`
-- `analyze.comments()` via YouTube API (yt-dlp fallback works without key)
-- `get.comments()` via YouTube API
+Get an API key from [Google Cloud Console](https://console.cloud.google.com/) → Enable YouTube Data API v3 → Create Credentials.
 
-## Quick Start - 5 Core APIs
+## Quick Start
 
 ```python
 from youtube_toolkit import YouTubeToolkit
 
 toolkit = YouTubeToolkit()
-```
 
-### 1. GET - Retrieve Information
-
-```python
-# Smart auto-detect
-video = toolkit.get("https://youtube.com/watch?v=example")
+# Get video info
+video = toolkit.get("https://youtube.com/watch?v=dQw4w9WgXcQ")
 print(f"{video.title} - {video.duration}s")
 
-# Explicit methods
-chapters = toolkit.get.chapters(url)
-transcript = toolkit.get.transcript(url)
-comments = toolkit.get.comments(url, max_results=50)
-captions = toolkit.get.captions(url)
-formats = toolkit.get.formats(url)           # Available download formats
-keywords = toolkit.get.keywords(url)         # Video tags
-restriction = toolkit.get.restriction(url)   # Age/region restrictions
-embed_url = toolkit.get.embed_url(url)       # Embeddable URL
+# Download audio
+result = toolkit.download(url, type='audio', format='mp3')
+print(f"Downloaded: {result.file_path}")
 
-# Channel operations
-channel_videos = toolkit.get.channel.videos("@Fireship", limit=50)
-channel_info = toolkit.get.channel("@Fireship")
-channel_shorts = toolkit.get.channel.shorts("@Fireship")
-
-# Playlist operations
-playlist_videos = toolkit.get.playlist.videos(playlist_url)
-playlist_info = toolkit.get.playlist.info(playlist_url)
+# Search
+results = toolkit.search("python tutorial", max_results=5)
+for item in results.items:
+    print(f"- {item.title}")
 ```
 
-### 2. DOWNLOAD - Save Content to Disk
+## The 5 Core APIs
+
+### GET - Retrieve Information
 
 ```python
-# Smart download (returns DownloadResult)
+video = toolkit.get(url)                    # Video info
+chapters = toolkit.get.chapters(url)        # Chapter timestamps
+comments = toolkit.get.comments(url)        # Video comments
+formats = toolkit.get.formats(url)          # Available formats
+
+# Channel
+videos = toolkit.get.channel.videos("@Fireship", limit=50)
+shorts = toolkit.get.channel.shorts("@Fireship")
+
+# Playlist
+videos = toolkit.get.playlist.videos(playlist_url)
+```
+
+### DOWNLOAD - Save to Disk
+
+```python
 result = toolkit.download(url, type='audio', format='mp3')
-if result.success:
-    print(f"Downloaded to: {result.file_path}")
-
-# Explicit methods (return file paths)
-audio_path = toolkit.download.audio(url, format='mp3', bitrate='192k')
+audio_path = toolkit.download.audio(url, format='mp3')
 video_path = toolkit.download.video(url, quality='720p')
-caption_path = toolkit.download.captions(url, lang='en')
-thumb_path = toolkit.download.thumbnail(url)
-results = toolkit.download.playlist(url, type='audio')
 
-# Advanced downloads
+# Advanced
 toolkit.download.shorts(url)                              # YouTube Shorts
 toolkit.download.live(url, from_start=True)               # Live streams
 toolkit.download.with_sponsorblock(url, action='remove')  # Skip sponsors
-toolkit.download.with_metadata(url, embed_thumbnail=True) # With ID3 tags
-toolkit.download.with_filter(url, match_filter="duration > 600")
-toolkit.download.with_archive(url, archive_file="downloaded.txt")
 toolkit.download.with_cookies(url, browser='chrome')      # Age-restricted
 ```
 
-### 3. SEARCH - Find Content
+### SEARCH - Find Content
 
 ```python
-# Smart search (returns SearchResult)
-results = toolkit.search("python tutorial", max_results=10)
-for item in results.items:
-    print(f"- {item.title}")
+results = toolkit.search("query", max_results=20)
+videos = toolkit.search.videos("query")
+channels = toolkit.search.channels("query")
 
-# Explicit methods
-videos = toolkit.search.videos("python tutorial", limit=20)
-channels = toolkit.search.channels("python")
-playlists = toolkit.search.playlists("python course")
-
-# Advanced search with filters
-filtered = toolkit.search.with_filters(
+# With filters
+results = toolkit.search.with_filters(
     "python tutorial",
-    duration='medium',      # 'short', 'medium', 'long'
-    upload_date='month',    # 'hour', 'today', 'week', 'month', 'year'
-    sort_by='views'         # 'relevance', 'date', 'views', 'rating'
+    duration='medium',      # short, medium, long
+    upload_date='month',    # hour, today, week, month, year
+    sort_by='views'
 )
 
-# Search autocomplete suggestions
-suggestions = toolkit.search.suggestions("python tut")
-
-# Trending content (requires YouTube API key)
-trending = toolkit.search.trending()                    # Trending videos
-trending_by_cat = toolkit.search.trending.by_category() # By category
-categories = toolkit.search.categories()                # Video categories
-regions = toolkit.search.regions()                      # Supported regions
-languages = toolkit.search.languages()                  # Supported languages
+# Trending (requires API key)
+trending = toolkit.search.trending()
 ```
 
-### 4. ANALYZE - Analyze Content
+### ANALYZE - Deep Analysis
 
 ```python
-# Full metadata analysis
-metadata = toolkit.analyze(url)                    # 50+ fields
-metadata = toolkit.analyze.metadata(url)           # Same as above
-
-# Engagement data
-engagement = toolkit.analyze.engagement(url)       # Heatmap + key moments
-print(engagement['heatmap'])                       # Most replayed sections
-print(engagement['key_moments'])                   # AI-generated moments
-
-# Other analysis
-comments = toolkit.analyze.comments(url, max_comments=100, sort='relevance')
-captions = toolkit.analyze.captions(url)
-segments = toolkit.analyze.sponsorblock(url)       # Sponsor segments
-channel = toolkit.analyze.channel("@Fireship")     # Channel analytics
-filesize = toolkit.analyze.filesize(url)           # Preview filesizes
+metadata = toolkit.analyze(url)             # 50+ fields
+engagement = toolkit.analyze.engagement(url) # Heatmap + key moments
+segments = toolkit.analyze.sponsorblock(url) # Sponsor segments
+filesize = toolkit.analyze.filesize(url)     # Preview sizes
 ```
 
-### 5. STREAM - Stream to Buffer
+### STREAM - Stream to Buffer
 
 ```python
-# Stream audio/video to memory (no file saved)
-audio_bytes = toolkit.stream(url)                  # Audio buffer (default)
-audio_bytes = toolkit.stream.audio(url, quality='best')
-video_bytes = toolkit.stream.video(url, quality='720p')
+audio_bytes = toolkit.stream.audio(url)     # Audio in memory
+video_bytes = toolkit.stream.video(url)     # Video in memory
 
-# Live stream operations
-status = toolkit.stream.live.status(url)           # Live stream info
-is_live = toolkit.stream.live.is_live(url)         # Check if live
-path = toolkit.stream.live.download(url, from_start=True)
+# Live streams
+is_live = toolkit.stream.live.is_live(url)
+status = toolkit.stream.live.status(url)
 ```
+
+## Documentation
+
+- **[Usage Guide](docs/USAGE.md)** - Comprehensive usage examples
+- **[Architecture](docs/ARCHITECTURE.md)** - Design philosophy and decisions
+- **[Extending](docs/EXTENDING.md)** - How to add new features
 
 ## Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│           Consolidated API v1.0 (sub_apis.py)               │
+│                      Sub-API Layer                          │
 │     GetAPI │ DownloadAPI │ SearchAPI │ AnalyzeAPI │ StreamAPI│
 └─────────────────────────────────────────────────────────────┘
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                    API Layer (api.py)                       │
-│         YouTubeToolkit (Unified Interface)                  │
+│                    YouTubeToolkit                           │
+│            Fallback logic, unified interface                │
 └─────────────────────────────────────────────────────────────┘
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                Backend Layer (handlers/)                    │
-├─────────────┬─────────────┬──────────────┬─────────────────┤
-│ PyTubeFix   │   YT-DLP    │ YouTube API  │  ScrapeTube     │
-│  Handler    │   Handler   │   Handler    │   Handler       │
-│ (Primary)   │ (Fallback)  │ (Metadata)   │ (Optional)      │
-└─────────────┴─────────────┴──────────────┴─────────────────┘
+│                      Handlers                               │
+│   PyTubeFix (primary) │ yt-dlp (fallback) │ YouTube API     │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-## API Reference
+## Dependencies & Acknowledgments
 
-### GET API
-| Method | Returns | Description |
-|--------|---------|-------------|
-| `get(url)` | `VideoInfo` | Smart auto-detect video info |
-| `get.video(url)` | `VideoInfo` | Video metadata |
-| `get.chapters(url)` | `List[Dict]` | Video chapters |
-| `get.transcript(url)` | `str` | Video transcript |
-| `get.comments(url)` | `CommentResult` | Video comments |
-| `get.captions(url)` | `CaptionResult` | Available captions |
-| `get.formats(url)` | `Dict` | Available formats |
-| `get.keywords(url)` | `List[str]` | Video tags |
-| `get.restriction(url)` | `Dict` | Age/region restrictions |
-| `get.embed_url(url)` | `str` | Embed URL |
-| `get.channel(channel)` | `Dict` | Channel info |
-| `get.channel.videos(channel)` | `List[Dict]` | Channel videos |
-| `get.channel.shorts(channel)` | `List[Dict]` | Channel shorts |
-| `get.playlist.videos(url)` | `List[Dict]` | Playlist videos |
-| `get.playlist.info(url)` | `Dict` | Playlist info |
+youtube-toolkit is built on top of excellent open-source projects:
 
-### DOWNLOAD API
-| Method | Returns | Description |
-|--------|---------|-------------|
-| `download(url, type, format)` | `DownloadResult` | Smart download |
-| `download.audio(url, format)` | `str` | Download audio |
-| `download.video(url, quality)` | `str` | Download video |
-| `download.captions(url, lang)` | `str` | Download captions |
-| `download.thumbnail(url)` | `str` | Download thumbnail |
-| `download.playlist(url)` | `Dict` | Download playlist |
-| `download.shorts(url)` | `str` | Download YouTube Short |
-| `download.live(url)` | `str` | Download live stream |
-| `download.with_sponsorblock(url)` | `str` | Skip sponsors |
-| `download.with_metadata(url)` | `str` | With ID3 tags |
-| `download.with_filter(url)` | `str` | With match filter |
-| `download.with_archive(url)` | `str` | Track downloads |
-| `download.with_cookies(url)` | `str` | Use browser cookies |
+### Core Dependencies
 
-### SEARCH API
-| Method | Returns | Description |
-|--------|---------|-------------|
-| `search(query)` | `SearchResult` | Smart search |
-| `search.videos(query)` | `List[Dict]` | Search videos |
-| `search.channels(query)` | `List[Dict]` | Search channels |
-| `search.playlists(query)` | `List[Dict]` | Search playlists |
-| `search.with_filters(query)` | `Dict` | Filtered search |
-| `search.suggestions(query)` | `List[str]` | Autocomplete |
-| `search.trending()` | `Dict` | Trending videos |
-| `search.trending.by_category()` | `Dict` | Trending by category |
-| `search.categories()` | `List[Dict]` | Video categories |
-| `search.regions()` | `List[Dict]` | Supported regions |
-| `search.languages()` | `List[Dict]` | Supported languages |
+| Package | Purpose | License |
+|---------|---------|---------|
+| [**PyTubeFix**](https://github.com/JuanBindez/pytubefix) | Primary download engine, channel/playlist support, search | MIT |
+| [**yt-dlp**](https://github.com/yt-dlp/yt-dlp) | Robust fallback downloader, live streams, SponsorBlock, cookies | Unlicense |
+| [**google-api-python-client**](https://github.com/googleapis/google-api-python-client) | Official YouTube Data API v3 for comments, trending, metadata | Apache 2.0 |
+| [**MoviePy**](https://github.com/Zulko/moviepy) | Video processing, audio extraction, format conversion | MIT |
+| [**FFmpeg**](https://ffmpeg.org/) | Audio/video encoding, format conversion (system dependency) | LGPL/GPL |
+| [**requests**](https://github.com/psf/requests) | HTTP requests for thumbnails and API calls | Apache 2.0 |
+| [**rich**](https://github.com/Textualize/rich) | Beautiful terminal output and progress bars | MIT |
+| [**python-dotenv**](https://github.com/theskumar/python-dotenv) | Environment variable management | BSD |
 
-### ANALYZE API
-| Method | Returns | Description |
-|--------|---------|-------------|
-| `analyze(url)` | `Dict` | Full metadata |
-| `analyze.metadata(url)` | `Dict` | 50+ field metadata |
-| `analyze.engagement(url)` | `Dict` | Heatmap + key moments |
-| `analyze.comments(url)` | `CommentResult` | Comment analytics |
-| `analyze.captions(url)` | `CaptionResult` | Caption analysis |
-| `analyze.sponsorblock(url)` | `List[Dict]` | Sponsor segments |
-| `analyze.channel(channel)` | `Dict` | Channel analytics |
-| `analyze.filesize(url)` | `Dict` | Filesize preview |
+### Optional Dependencies
 
-### STREAM API
-| Method | Returns | Description |
-|--------|---------|-------------|
-| `stream(url)` | `bytes` | Stream to buffer |
-| `stream.audio(url)` | `bytes` | Stream audio |
-| `stream.video(url)` | `bytes` | Stream video |
-| `stream.live.status(url)` | `Dict` | Live stream status |
-| `stream.live.is_live(url)` | `bool` | Check if live |
-| `stream.live.download(url)` | `str` | Download live |
+| Package | Purpose | Install |
+|---------|---------|---------|
+| [**scrapetube**](https://github.com/dermasmid/scrapetube) | Unlimited channel videos without API limits | `pip install youtube-toolkit[scrapers]` |
 
-## Legacy API (Still Supported)
+### Special Thanks
 
-```python
-# These methods still work for backward compatibility
-video = toolkit.get_video(url)               # VideoInfo dataclass
-result = toolkit.download(url, type='audio') # DownloadResult
-results = toolkit.search('query')            # SearchResult
-audio_path = toolkit.download_audio(url)     # str path
-video_path = toolkit.download_video(url)     # str path
-info = toolkit.get_video_info(url)           # Dict
-```
-
-## Troubleshooting
-
-### FFmpeg Not Found
-```bash
-sudo apt install ffmpeg  # Ubuntu/Debian
-brew install ffmpeg      # macOS
-```
-
-### YouTube API Key
-```bash
-echo "YOUTUBE_API_KEY=your_api_key_here" > .env
-```
-
-### Test Your Setup
-```python
-status = toolkit.test_handlers('https://youtube.com/watch?v=example')
-print(status)
-```
+- **pytube** maintainers and contributors - The original inspiration
+- **yt-dlp** team - For the most comprehensive YouTube downloader
+- **SponsorBlock** - Community-driven sponsor segment database
+- All contributors to the open-source packages that make this possible
 
 ## Project Structure
+
 ```
 youtube-toolkit/
 ├── youtube_toolkit/
-│   ├── api.py              # YouTubeToolkit class
-│   ├── sub_apis.py         # 5 Core APIs: Get, Download, Search, Analyze, Stream
+│   ├── api.py              # YouTubeToolkit main class
+│   ├── sub_apis.py         # 5 Core APIs
 │   ├── handlers/           # Backend handlers
 │   │   ├── pytubefix_handler.py
 │   │   ├── yt_dlp_handler.py
 │   │   ├── youtube_api_handler.py
 │   │   └── scrapetube_handler.py
-│   ├── core/               # Data structures
+│   ├── core/               # Data classes
 │   └── utils/              # Utilities
+├── docs/                   # Documentation
+│   ├── USAGE.md
+│   ├── ARCHITECTURE.md
+│   └── EXTENDING.md
 ├── tests/                  # Test suite (200+ tests)
+├── CHANGELOG.md
 └── README.md
 ```
 
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Follow the [architecture guidelines](docs/ARCHITECTURE.md)
+4. Add tests for new functionality
+5. Submit a pull request
+
+See [EXTENDING.md](docs/EXTENDING.md) for detailed contribution guidelines.
+
 ## License
 
-MIT License - see the LICENSE file for details.
+MIT License - see [LICENSE](LICENSE) for details.
 
-## Acknowledgments
+## Changelog
 
-- **PyTubeFix** - Primary download engine
-- **YT-DLP** - Advanced download backend
-- **MoviePy** - Video processing
-- **FFmpeg** - Audio/video conversion
+See [CHANGELOG.md](CHANGELOG.md) for version history and migration guides.
 
 ---
 
-**Happy downloading!**
+**Made with reliability in mind.**
