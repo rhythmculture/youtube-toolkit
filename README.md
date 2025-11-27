@@ -42,23 +42,43 @@ brew install ffmpeg
 ```
 
 ### Install the Package
+
 ```bash
-# Clone the repository
-git clone https://github.com/rhythmculture/youtube-toolkit.git
-cd youtube-toolkit
+# Install directly from GitHub with uv (recommended)
+uv pip install git+https://github.com/rhythmculture/youtube-toolkit.git
 
-# Install with uv (recommended)
-uv sync
+# Or install a specific version
+uv pip install git+https://github.com/rhythmculture/youtube-toolkit.git@v1.0.0
 
-# Or install with pip
-pip install .
+# Or with pip
+pip install git+https://github.com/rhythmculture/youtube-toolkit.git
 ```
 
-### Environment Variables (Optional)
+### YouTube API Setup (Required for some features)
+
+Some features require a YouTube API key (trending, categories, regions, languages, comments via API).
+
+1. Go to [Google Cloud Console](https://console.cloud.google.com/)
+2. Create a new project or select an existing one
+3. Enable the **YouTube Data API v3**
+4. Go to **Credentials** → **Create Credentials** → **API Key**
+5. Copy the API key and set it as an environment variable:
+
 ```bash
-# Create a .env file in your project directory
+# Option 1: Create a .env file in your project directory
 echo "YOUTUBE_API_KEY=your_api_key_here" > .env
+
+# Option 2: Export directly (Linux/macOS)
+export YOUTUBE_API_KEY=your_api_key_here
+
+# Option 3: Set in Windows
+set YOUTUBE_API_KEY=your_api_key_here
 ```
+
+**Note**: Most features work without an API key. The API key is only needed for:
+- `search.trending()`, `search.categories()`, `search.regions()`, `search.languages()`
+- `analyze.comments()` via YouTube API (yt-dlp fallback works without key)
+- `get.comments()` via YouTube API
 
 ## Quick Start - 5 Core APIs
 
