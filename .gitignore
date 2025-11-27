@@ -67,6 +67,9 @@ debug_*.py
 *.tmp
 *.temp
 
+# uv
+uv.lock
+
 # pytest
 .pytest_cache/
 .coverage
