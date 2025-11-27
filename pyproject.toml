@@ -58,7 +58,6 @@ docs = [
 ]
 # All optional dependencies
 all = [
-    "youtube-toolkit[scrapers]",
     "youtube-toolkit[dev]",
     "youtube-toolkit[docs]",
 ]
