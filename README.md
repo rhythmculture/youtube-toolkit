@@ -34,13 +34,6 @@ If one method fails, it automatically tries the next one, ensuring your download
 - **Metadata Export** - Export comprehensive metadata to JSON files (v0.6+)
 - **YouTube Shorts** - Full support for downloading and listing Shorts (v0.6+)
 
-## 📚 Documentation
-
-- Quick-start + architecture overview: the sections below in this README.
-- [`docs/API_GUIDE.md`](docs/API_GUIDE.md) – practical walkthrough of each Sub-API and sample snippets.
-- [`docs/EXTENDING.md`](docs/EXTENDING.md) – how to add new handlers/modules without changing the public API.
-- [`docs/MIGRATION.md`](docs/MIGRATION.md) – mapping of pre-consolidation helpers to the modern Sub-APIs.
-
 ## 🏗️ Architecture
 
 YouTube Toolkit uses a **three-layer architecture**:
