@@ -180,7 +180,7 @@ toolkit.download.video(url)     # Explicit
 | `PyTubeFixHandler` | pytubefix | Downloads, channels, search, chapters |
 | `YTDLPHandler` | yt-dlp | Fallback downloads, live streams, SponsorBlock |
 | `YouTubeAPIHandler` | google-api | Comments, trending, categories, official search |
-| `ScrapeTubeHandler` | scrapetube | Unlimited channel videos (optional) |
+| `ScrapeTubeHandler` | scrapetube | Unlimited channel videos |
 
 ### Handler Design Principles
 
@@ -220,33 +220,29 @@ def get_video_info(self, url: str) -> Dict:
 
 ## Data Classes
 
-### Why Data Classes?
+### Return Types
 
-Instead of returning raw dictionaries, we use typed data classes:
+Different APIs return different types:
 
 ```python
-# Dictionary (old way) - What fields are available?
-info = toolkit.get_video_info(url)
-print(info['title'])  # Hope this key exists!
+# GET API returns dictionaries
+video = toolkit.get(url)
+print(video['title'])        # Dict access
 
-# Data class (new way) - IDE autocomplete works
-video = toolkit.get.video(url)
-print(video.title)    # Type-safe, documented
+# DOWNLOAD API returns DownloadResult dataclass
+result = toolkit.download(url)
+print(result.file_path)      # Attribute access
+print(result.success)
+
+# SEARCH API returns SearchResult dataclass
+results = toolkit.search("query")
+for item in results.items:   # items is a list of SearchResultItem
+    print(item.title)        # Attribute access
 ```
 
 ### Core Data Classes
 
 ```python
-@dataclass
-class VideoInfo:
-    title: str
-    video_id: str
-    duration: int
-    views: int
-    author: str
-    description: Optional[str] = None
-    thumbnail: Optional[str] = None
-
 @dataclass
 class DownloadResult:
     success: bool
@@ -254,11 +250,19 @@ class DownloadResult:
     error_message: Optional[str] = None
     file_size: Optional[int] = None
 
-@dataclass  
+@dataclass
 class SearchResult:
     items: List[SearchResultItem]
     total_results: int
     query: str
+
+@dataclass
+class SearchResultItem:
+    title: str
+    video_id: Optional[str] = None
+    channel_id: Optional[str] = None
+    description: str = ""
+    # ... more fields
 ```
 
 ## Why This Design?

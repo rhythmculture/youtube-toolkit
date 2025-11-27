@@ -154,7 +154,7 @@ path = toolkit.download.with_archive(url)
 - Engagement heatmap data
 - Advanced search with native filters
 - Playlist information
-- ScrapeTube integration (optional)
+- ScrapeTube integration
 
 ## [0.2.0] - 2024-11-21
 

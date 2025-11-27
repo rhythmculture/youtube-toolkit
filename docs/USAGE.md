@@ -41,8 +41,8 @@ if result.success:
 
 # Search for videos
 results = toolkit.search("python tutorial", max_results=5)
-for item in results:
-    print(f"- {item['title']}")
+for item in results.items:
+    print(f"- {item.title}")
 ```
 
 ## The 5 Core APIs
@@ -55,7 +55,7 @@ Use `toolkit.get` to retrieve information without downloading.
 
 ```python
 # Video information
-video = toolkit.get(url)                    # Returns VideoInfo dataclass
+video = toolkit.get(url)                    # Returns dict with video info
 video = toolkit.get.video(url)              # Same as above
 
 # Video details
@@ -207,8 +207,8 @@ toolkit = YouTubeToolkit()
 # Get recent videos
 videos = toolkit.get.channel.videos("@Fireship", limit=50)
 
-# Get ALL videos (requires scrapetube: pip install youtube-toolkit[scrapers])
-all_videos = toolkit.get.channel.all_videos("@Fireship")
+# Get ALL videos (uses scrapetube for unlimited results)
+all_videos = toolkit.get.channel.videos("@Fireship", use_scrapetube=True)
 
 for video in videos:
     print(f"{video['title']} - {video['views']} views")

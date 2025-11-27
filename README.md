@@ -80,8 +80,8 @@ print(f"Downloaded: {result.file_path}")
 
 # Search
 results = toolkit.search("python tutorial", max_results=5)
-for item in results:
-    print(f"- {item['title']}")
+for item in results.items:
+    print(f"- {item.title}")
 ```
 
 ## The 5 Core APIs
